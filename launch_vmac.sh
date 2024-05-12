@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+cd $SCRIPT_DIR
 APP_LOCATION="/Applications/Mini vMac.app"
-BOOT_DISK=minivmac/vmac-boot-disk.dsk
+BOOT_DISK=$SCRIPT_DIR/minivmac/vmac-boot-disk.dsk
 
 if ! [ -f $BOOT_DISK ]
 then
