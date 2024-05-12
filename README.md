@@ -24,8 +24,13 @@ if build is successful, there will be a disk file for the compiled application i
 
 ---
 
-Mini vMac requires the correct ROM file to be in the same directory as the application itself. the rom is in the minivmac tar.
+mini vmac requires the correct `.ROM` file to be in the same directory as the application itself. it also requires a boot disk. these files are in the `minivmac/vmac_stuffs.tar.gz`.
 
-You can create custom Mini vMac applications here:<br>
+after getting mini vmac running, the provided boot disk will automatically load the [Launcher Application](https://github.com/autc04/Retro68/tree/master/Samples/Launcher), written by [autc04](https://github.com/autc04/Retro68).<br>
+you can then use mini vmac to rapidly test your application:<br>
+`create/edit application` > `compile` > `drag and drop into mini v mac` > `repeat`
+
+you can create custom mini vmac builds here:<br>
 [Mini vMac - Variations Service (Advanced)](https://www.gryphel.com/c/minivmac/vara_srv.html)
 
+the 
