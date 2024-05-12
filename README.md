@@ -45,10 +45,10 @@ it will create a new folder with the name you choose to:
 it will create a basic "Hello World!" type application (`NAME_OF_PROJECT.c`).<br>
 and also a `CMakeLists.txt` file.
 
-* ###classic_mac/projects/
-  * ###NAME_OF_PROJECT/
-    * ###NAME_OF_PROJECT.c
-    * ###CMakeLists.txt
+* **classic_mac/projects/**
+  * **NAME_OF_PROJECT/**
+    * **NAME_OF_PROJECT.c**
+    * **CMakeLists.txt**
 
 you can then build this project by running:
 ```
