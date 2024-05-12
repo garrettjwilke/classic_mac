@@ -25,7 +25,8 @@ if build is successful, the build files will be in the `target/hello_world` dire
 * `.ad`   - AppleDouble file pairs
 * `.hda`  - blueSCSI disk image
 
-it will copy the `.dsk` file for the compiled application in the `target/00_floppy_images` directory.
+it will copy the `.dsk` file for the compiled application in the directory:<br>
+`target/00_floppy_images`
 
 ---
 
@@ -40,11 +41,14 @@ you can create a new project by running:
 ./create_new_project.sh
 ```
 it will create a new folder with the name you choose to:
-```
-classic_mac/projects/NAME_OF_PROJECT
-```
+`classic_mac/projects/NAME_OF_PROJECT`<br>
 it will create a basic "Hello World!" type application (`NAME_OF_PROJECT.c`).<br>
 and also a `CMakeLists.txt` file.
+
+* `classic_mac/projects/`
+  * `NAME_OF_PROJECT/`
+    * `NAME_OF_PROJECT.c`
+    * `CMakeLists.txt`
 
 you can then build this project by running:
 ```
