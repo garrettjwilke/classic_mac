@@ -8,11 +8,11 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 PROJECT_NAME=$(basename $1)
 
 # set the directory that the project will be compiled to
-BUILD_DIR=$SCRIPT_DIR/target/$PROJECT_NAME
+BUILD_DIR=$SCRIPT_DIR/target
 
 # the final build floppies are set here
 # if the directory does not exist, it will be created
-FLOPPY_DIR=$SCRIPT_DIR/target/00_floppy_images
+FLOPPY_DIR=${BUILD_DIR}/00_floppy_images
 
 # it is very important to have Retro68 already compiled.
 # after compiling Retro68, set the Retro68-build directory here
@@ -27,11 +27,11 @@ convert_image() {
     exit 1
   fi
   OUTPUT_NAME=$(basename -s ".dsk" $IMAGE_FILE)
-  if ! [ -d ${SCRIPT_DIR}/target/00_bluescsi_images ]
+  if ! [ -d ${BUILD_DIR}/00_bluescsi_images ]
   then
-    mkdir ${SCRIPT_DIR}/target/00_bluescsi_images
+    mkdir ${BUILD_DIR}/00_bluescsi_images
   fi
-  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} ${SCRIPT_DIR}/target/00_bluescsi_images/FDx-${OUTPUT_NAME}.hda
+  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} ${BUILD_DIR}/00_bluescsi_images/FDx-${OUTPUT_NAME}.hda
   if [ $? -gt 0 ]
   then
     echo "conversion failed. not sure why but it did."
@@ -64,19 +64,16 @@ then
   exit 1
 fi
 
-# change working directory to the project name provided by user
-#pushd "$1" &>/dev/null
-
 # check if the build directory exists and remove it to rebuild
-if [ -d $BUILD_DIR ]
+if [ -d ${BUILD_DIR}/$PROJECT_NAME ]
 then
-  rm -rf $BUILD_DIR
+  rm -rf ${BUILD_DIR}/$PROJECT_NAME
 fi
 
 # make new build directory and cd into it
-mkdir -p $BUILD_DIR
-#cd $BUILD_DIR
-pushd $BUILD_DIR
+mkdir -p ${BUILD_DIR}/$PROJECT_NAME
+pushd ${BUILD_DIR}/$PROJECT_NAME
+
 # build the files
 cmake $SCRIPT_DIR/$1 -DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_DIR/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake
 make
