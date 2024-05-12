@@ -68,7 +68,11 @@ convert_image() {
     exit
   fi
   OUTPUT_NAME=$(basename -s ".dsk" $IMAGE_FILE)
-  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} $FLOPPY_DIR/_FD5-${OUTPUT_NAME}.hda
+  if ! [ -d ${FLOPPY_DIR}/00_bluescsi_images ]
+  then
+    mkdir ${FLOPPY_DIR}/00_bluescsi_images
+  fi
+  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} ${FLOPPY_DIR}/00_bluescsi_images/FDx-${OUTPUT_NAME}.hda
   if [ $? -gt 0 ]
   then
     echo "conversion failed. not sure why but it did."
