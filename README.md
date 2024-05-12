@@ -22,7 +22,8 @@ if build is successful, there will be a disk file for the compiled application i
 
 ---
 
-disk jockey jr is required if you want to convert the compiled `.dsk` file into a bluescsi compatible image. install [djjr](https://diskjockey.onegeekarmy.eu/djjr/) and then open a new terminal or reload PATH if you just installed djjr.
+disk jockey jr is required if you want to convert the compiled `.dsk` file into a bluescsi compatible image.<br>
+install [djjr](https://diskjockey.onegeekarmy.eu/djjr/) and then open a new terminal or reload PATH if you just installed djjr.
 the `build.sh` script will detect if you have `djjr` in your PATH and then enable it automatically. the compiled `.dsk` file will be converted to `.hda` for bluescsi at `target/00_bluescsi_images`.
 
 ---
