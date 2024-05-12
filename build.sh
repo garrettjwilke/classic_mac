@@ -12,7 +12,7 @@ BUILD_DIR=$SCRIPT_DIR/target/$PROJECT_NAME
 
 # the final build floppies are set here
 # if the directory does not exist, it will be created
-FLOPPY_DIR=$SCRIPT_DIR/target/floppy_images
+FLOPPY_DIR=$SCRIPT_DIR/target/00_floppy_images
 
 # it is very important to have Retro68 already compiled.
 # after compiling Retro68, set the Retro68-build directory here
@@ -27,11 +27,11 @@ convert_image() {
     exit 1
   fi
   OUTPUT_NAME=$(basename -s ".dsk" $IMAGE_FILE)
-  if ! [ -d ${FLOPPY_DIR}/00_bluescsi_images ]
+  if ! [ -d ${SCRIPT_DIR}/target/00_bluescsi_images ]
   then
-    mkdir ${FLOPPY_DIR}/00_bluescsi_images
+    mkdir ${SCRIPT_DIR}/target/00_bluescsi_images
   fi
-  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} ${FLOPPY_DIR}/00_bluescsi_images/FDx-${OUTPUT_NAME}.hda
+  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} ${SCRIPT_DIR}/target/00_bluescsi_images/FDx-${OUTPUT_NAME}.hda
   if [ $? -gt 0 ]
   then
     echo "conversion failed. not sure why but it did."
@@ -65,7 +65,7 @@ then
 fi
 
 # change working directory to the project name provided by user
-pushd "$1" &>/dev/null
+#pushd "$1" &>/dev/null
 
 # check if the build directory exists and remove it to rebuild
 if [ -d $BUILD_DIR ]
@@ -75,8 +75,8 @@ fi
 
 # make new build directory and cd into it
 mkdir -p $BUILD_DIR
-cd $BUILD_DIR
-
+#cd $BUILD_DIR
+pushd $BUILD_DIR
 # build the files
 cmake $SCRIPT_DIR/$1 -DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_DIR/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake
 make
@@ -99,7 +99,7 @@ fi
 for i in $FLOPPY_FILES
 do
   cp $i $FLOPPY_DIR
-  if $BLUESCSI_CONVERT
+  if [ $BLUESCSI_CONVERT == true ]
   then
     convert_image $i
   fi
