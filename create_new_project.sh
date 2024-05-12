@@ -51,7 +51,7 @@ create_app() {
   echo "" >> $PROJECT_APP
   echo int\ main\(void\) >> $PROJECT_APP
   echo \{ >> $PROJECT_APP
-  echo \ \ printString\(\"$PROJECT_NAME\\ntest\ string\"\)\; >> $PROJECT_APP
+  echo \ \ printf\(\"$PROJECT_NAME\\ntest\ string\"\)\; >> $PROJECT_APP
   echo \ \ printf\(\"\\npress\ any\ key\ to\ exit\\n\\n\"\)\; >> $PROJECT_APP
   echo \ \ getchar\(\)\; >> $PROJECT_APP
   echo \ \ return\ 0\; >> $PROJECT_APP
