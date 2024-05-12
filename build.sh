@@ -12,7 +12,7 @@ BUILD_DIR=$SCRIPT_DIR/build/$PROJECT_NAME
 
 # the final build floppies are set here
 # if the directory does not exist, it will be created
-FLOPPY_DIR=$SCRIPT_DIR/floppy_images
+FLOPPY_DIR=$SCRIPT_DIR/build/floppy_images
 
 # it is very important to have Retro68 already compiled.
 # after compiling Retro68, set the Retro68-build directory here
