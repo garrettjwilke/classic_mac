@@ -13,7 +13,7 @@ PROJECT_DIR=projects
 PROJECT_LIST=$(ls $PROJECT_DIR)
 for i in $PROJECT_LIST
 do
-  if [ $MAKEFILE_ONLY ]
+  if [ $MAKEFILE_ONLY == true ]
   then
     ./create_makefile.sh ${PROJECT_DIR}/$i
   else
