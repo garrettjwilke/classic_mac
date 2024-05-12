@@ -23,7 +23,7 @@ if ! [ -d $TOOLCHAIN_DIR ]
 then
   echo "no toolchain directory."
   echo "build toolchain at github.com/autc04/Retro68"
-  exit
+  exit 1
 fi
 
 # check if user input a path to the source they wish to compile
@@ -31,7 +31,7 @@ if [ $# -ne 1 ]
 then
   echo "provide source directory. example below:"
   echo "./build.sh path/to/project"
-  exit
+  exit 1
 fi
 
 # check if the directory the user input actually exists
@@ -39,7 +39,7 @@ if [ ! -d "$1" ]
 then
   echo $1
   echo "the project directory does not exist"
-  exit
+  exit 1
 fi
 
 # change working directory to the project name provided by user
@@ -65,7 +65,7 @@ convert_image() {
   if ! [ $(which djjr) ]
   then
     echo "djjr is not installed."
-    exit
+    exit 1
   fi
   OUTPUT_NAME=$(basename -s ".dsk" $IMAGE_FILE)
   if ! [ -d ${FLOPPY_DIR}/00_bluescsi_images ]
@@ -77,7 +77,7 @@ convert_image() {
   then
     echo "conversion failed. not sure why but it did."
     echo "image attempted: $FLOPPY_DIR/$IMAGE_FILE"
-    exit
+    exit 1
   fi
 }
 
@@ -92,7 +92,7 @@ FLOPPY_FILES=$(ls *.dsk)
 if [ "$FLOPPY_FILES" == "" ]
 then
   echo "build floppy was not created"
-  exit
+  exit 1
 fi
 
 # copy disk images to the floppy folder then ask if user wants to convert to bluescsi
