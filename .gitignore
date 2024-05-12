@@ -4,6 +4,7 @@ target/
 floppy_images/
 .DS_Store
 Retro68/
+minivmac/vMac.ROM
 minivmac/MacSE.ROM
 minivmac/boot-disk.dsk
 .vscode/
