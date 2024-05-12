@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
 
-if [ "$(which djjr)" == "" ]
-then
-  BLUESCSI_CONVERT=false
-else
-  BLUESCSI_CONVERT=true
-fi
-
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # set the project name based on the project directory name
@@ -97,13 +90,15 @@ then
   exit 1
 fi
 
-# copy disk images to the floppy folder then ask if user wants to convert to bluescsi
 for i in $FLOPPY_FILES
 do
   cp $i $FLOPPY_DIR
-  if [ $BLUESCSI_CONVERT == true ]
+  if [ "$(which djjr2)" != "" ]
   then
     convert_image $i
+    BLUESCSI_CONVERT=true
+  else
+    BLUESCSI_CONVERT=false
   fi
 done
 

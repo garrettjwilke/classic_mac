@@ -18,7 +18,8 @@ once you have the toolkit built and in place, you can then compile using the `bu
 ./build.sh projects/hello_world
 ```
 
-if build is successful, there will be a disk file for the compiled application in the `target/00_floppy_images` directory.
+if build is successful, the build files will be in the `target/hello_world` directory.<br>
+there will also be a disk file for the compiled application in the `target/00_floppy_images` directory.
 
 ---
 
