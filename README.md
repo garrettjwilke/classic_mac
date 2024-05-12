@@ -7,8 +7,11 @@ git clone git@github.com:garrettjwilke/classic_mac.git
 cd classic_mac
 ```
 
-we need to compile the retro68 toolkit
-if you follow the building instructions at the [Retro68 Github](https://github.com/autc04/Retro68), you should have a new directory called `Retro68-build`. Make sure the `Retro68-build` directory is in the root of the `classic_mac` repository.
+we need to compile the retro68 toolkit. if you follow the building instructions at the [Retro68 Github](https://github.com/autc04/Retro68), you should have a new directory called `Retro68-build`. Make sure the `Retro68-build` directory is in the root of the `classic_mac` repository.
+
+```
+classic_mac/Retro68-build
+```
 
 if you want to convert disk images to BLUESCSI, install [Disk Jockey Jr](https://diskjockey.onegeekarmy.eu/djjr/).
 
