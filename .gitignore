@@ -2,7 +2,7 @@ Retro68-build/
 target/
 floppy_images/
 .DS_Store
-Retro68
+Retro68/
 minivmac/MacSE.ROM
 minivmac/boot-disk.dsk
 .vscode/
