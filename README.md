@@ -17,5 +17,5 @@ once you have the toolkit and disk jockey jr, you can then compile using the `bu
 ./build.sh projects/hello_world
 ```
 
-if build is successful, there will be a disk file for the compiled application in the `floppy_images` directory.
+if build is successful, there will be a disk file for the compiled application in the `build/floppy_images` directory.
 
