@@ -1,4 +1,7 @@
-# get it working
+# classic mac applicaiton development
+this is my attempt at making it as easy as possible to build a classic 68k or ppc macintosh application. at the time of this writing, i have only tested with mini vmac and a Macintosh SE (4MB RAM/16Mhz radius accelerator CPU/bluescsi drive).
+
+## get it working
 
 clone repo
 
@@ -20,13 +23,25 @@ if build is successful, there will be a disk file for the compiled application i
 ---
 
 disk jockey jr is required if you want to convert the compiled `.dsk` file into a bluescsi compatible image. install [djjr](https://diskjockey.onegeekarmy.eu/djjr/) and then open a new terminal or reload PATH if you just installed djjr.
+the `build.sh` script will detect if you have `djjr` in your PATH and then enable it automatically. the compiled `.dsk` file will be converted to `.hda` for bluescsi at `target/00_bluescsi_images`.
 
-you need to enable this by editing the `build.sh` file. change the `BLUESCSI_CONVERT` variable to `true`:
-```
-BLUESCSI_CONVERT=true
-```
+---
 
-save the `build.sh` file and then run `.build.sh path/to/project` again to compile your application and convert to bluescsi `.hda`. the compiled `.dsk` file will be converted to `.hda` for bluescsi at `target/00_bluescsi_images`.
+you can create a new project by running:
+```
+./create_new_project.sh
+```
+it will create a new folder with the name you choose to:
+```
+classic_mac/projects/NAME_OF_PROJECT
+```
+it will create a basic "Hello World!" type application (`NAME_OF_PROJECT.c`).<br>
+and also a `CMakeLists.txt` file.
+
+you can then build this project by running:
+```
+./build.sh path/to/NAME_OF_PROJECT
+```
 
 ---
 
@@ -40,5 +55,3 @@ you can then use mini vmac to rapidly test your application:<br>
 
 you can create custom mini vmac builds here:<br>
 [Mini vMac - Variations Service (Advanced)](https://www.gryphel.com/c/minivmac/vara_srv.html)
-
-the 

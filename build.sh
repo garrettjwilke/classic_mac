@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
-BLUESCSI_CONVERT=true
+if [ "$(which djjr)" == "" ]
+then
+  BLUESCSI_CONVERT=false
+else
+  BLUESCSI_CONVERT=true
+fi
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
@@ -105,4 +110,9 @@ done
 popd &>/dev/null
 
 echo ""
-echo "build complete. floppies coped to: $FLOPPY_DIR"
+echo "build complete. floppies copied to: $FLOPPY_DIR"
+if [ $BLUESCSI_CONVERT == true ]
+then
+  echo "bluescsi images copied to: ${BUILD_DIR}/00_bluescsi_images"
+fi
+
