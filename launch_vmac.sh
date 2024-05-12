@@ -9,6 +9,6 @@ if ! [ -f $BOOT_DISK ]
 then
   pushd minivmac &>/dev/null
   tar -xzf vmac_stuffs.tar.gz
-  popd
+  popd &>/dev/null
 fi
 open $BOOT_DISK -a "$APP_LOCATION"
