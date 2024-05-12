@@ -8,11 +8,11 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 PROJECT_NAME=$(basename $1)
 
 # set the directory that the project will be compiled to
-BUILD_DIR=$SCRIPT_DIR/build/$PROJECT_NAME
+BUILD_DIR=$SCRIPT_DIR/build_files/$PROJECT_NAME
 
 # the final build floppies are set here
 # if the directory does not exist, it will be created
-FLOPPY_DIR=$SCRIPT_DIR/build/floppy_images
+FLOPPY_DIR=$SCRIPT_DIR/build_files/floppy_images
 
 # it is very important to have Retro68 already compiled.
 # after compiling Retro68, set the Retro68-build directory here
@@ -68,7 +68,7 @@ convert_image() {
     exit
   fi
   OUTPUT_NAME=$(basename -s ".dsk" $IMAGE_FILE)
-  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} $FLOPPY_DIR/FD5-${OUTPUT_NAME}.hda
+  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} $FLOPPY_DIR/_FD5-${OUTPUT_NAME}.hda
   if [ $? -gt 0 ]
   then
     echo "conversion failed. not sure why but it did."
