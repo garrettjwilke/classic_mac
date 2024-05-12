@@ -4,7 +4,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 SOURCE_DIR=$1
 
-OUTPUT_DIR=build
+OUTPUT_DIR=target
 
 RETRO68_DIR=${SCRIPT_DIR}/Retro68-build
 

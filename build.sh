@@ -8,11 +8,11 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 PROJECT_NAME=$(basename $1)
 
 # set the directory that the project will be compiled to
-BUILD_DIR=$SCRIPT_DIR/build_files/$PROJECT_NAME
+BUILD_DIR=$SCRIPT_DIR/target/$PROJECT_NAME
 
 # the final build floppies are set here
 # if the directory does not exist, it will be created
-FLOPPY_DIR=$SCRIPT_DIR/build_files/floppy_images
+FLOPPY_DIR=$SCRIPT_DIR/target/floppy_images
 
 # it is very important to have Retro68 already compiled.
 # after compiling Retro68, set the Retro68-build directory here

@@ -1,5 +1,5 @@
 Retro68-build/
-build_files/
+target/
 floppy_images/
 .DS_Store
 Retro68
