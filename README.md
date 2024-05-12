@@ -23,8 +23,9 @@ if build is successful, the build files will be in the `target/hello_world` dire
 * `.bin`  - MacBinary
 * `.dsk`  - Raw HFS disk image of application
 * `.ad`   - AppleDouble file pairs
-* `.hda`  - blueSCSI disk image<br>
-there will also be a `.dsk` file for the compiled application in the `target/00_floppy_images` directory.
+* `.hda`  - blueSCSI disk image
+
+it will copy the `.dsk` file for the compiled application in the `target/00_floppy_images` directory.
 
 ---
 
