@@ -22,3 +22,10 @@ once you have the toolkit and disk jockey jr, you can then compile using the `bu
 
 if build is successful, there will be a disk file for the compiled application in the `target/00_floppy_images` directory.
 
+---
+
+Mini vMac requires the correct ROM file to be in the same directory as the application itself. the rom is in the minivmac tar.
+
+You can create custom Mini vMac applications here:<br>
+[Mini vMac - Variations Service (Advanced)](https://www.gryphel.com/c/minivmac/vara_srv.html)
+
