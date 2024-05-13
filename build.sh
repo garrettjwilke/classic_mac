@@ -10,7 +10,10 @@ BUILD_DIR=$SCRIPT_DIR/target
 
 # the final build floppies are set here
 # if the directory does not exist, it will be created
-FLOPPY_DIR=${BUILD_DIR}/00_floppy_images
+FLOPPY_DIR=00_floppy_images
+
+# if djjr is installed, .hda images will be created here
+BLUESCSI_DIR=00_bluescsi_images
 
 # it is very important to have Retro68 already compiled.
 # after compiling Retro68, set the Retro68-build directory here
@@ -19,21 +22,16 @@ TOOLCHAIN_DIR=${SCRIPT_DIR}/Retro68-build
 # function to convert compiled disk images to bluescsi drives
 convert_image() {
   IMAGE_FILE=$1
-  if ! [ $(which djjr) ]
-  then
-    echo "djjr is not installed."
-    exit 1
-  fi
   OUTPUT_NAME=$(basename -s ".dsk" $IMAGE_FILE)
-  if ! [ -d ${BUILD_DIR}/00_bluescsi_images ]
+  if ! [ -d ${BUILD_DIR}/$BLUESCSI_DIR ]
   then
-    mkdir ${BUILD_DIR}/00_bluescsi_images
+    mkdir ${BUILD_DIR}/$BLUESCSI_DIR
   fi
-  djjr convert to-device $FLOPPY_DIR/${IMAGE_FILE} ${BUILD_DIR}/00_bluescsi_images/FDx-${OUTPUT_NAME}.hda
+  djjr convert to-device ${BUILD_DIR}/$FLOPPY_DIR/${IMAGE_FILE} ${BUILD_DIR}/${BLUESCSI_DIR}/FDx-${OUTPUT_NAME}.hda
   if [ $? -gt 0 ]
   then
     echo "conversion failed. not sure why but it did."
-    echo "image attempted: $FLOPPY_DIR/$IMAGE_FILE"
+    echo "image attempted: ${BUILD_DIR}/$FLOPPY_DIR/$IMAGE_FILE"
     exit 1
   fi
 }
@@ -77,9 +75,9 @@ cmake $SCRIPT_DIR/$1 -DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_DIR/toolchain/m68k-apple-
 make
 
 # check if the floppy directory exists before copying over the compiled disk images
-if ! [ -d $FLOPPY_DIR ]
+if ! [ -d ${BUILD_DIR}/$FLOPPY_DIR ]
 then
-  mkdir $FLOPPY_DIR
+  mkdir ${BUILD_DIR}/$FLOPPY_DIR
 fi
 
 # find all compiled .dsk files
@@ -92,22 +90,22 @@ fi
 
 for i in $FLOPPY_FILES
 do
-  cp $i $FLOPPY_DIR
-  if [ "$(which djjr2)" != "" ]
+  cp $i ${BUILD_DIR}/$FLOPPY_DIR
+  if [ "$(which djjr)" == "" ]
   then
+    BLUESCSI_CONVERT=false
+  else
     convert_image $i
     BLUESCSI_CONVERT=true
-  else
-    BLUESCSI_CONVERT=false
   fi
 done
 
 popd &>/dev/null
 
 echo ""
-echo "build complete. floppies copied to: $FLOPPY_DIR"
+echo "build complete. floppies copied to: ${BUILD_DIR}/$FLOPPY_DIR"
 if [ $BLUESCSI_CONVERT == true ]
 then
-  echo "bluescsi images copied to: ${BUILD_DIR}/00_bluescsi_images"
+  echo "bluescsi images copied to: ${BUILD_DIR}/$BLUESCSI_DIR"
 fi
 
