@@ -5,7 +5,7 @@ add_application(${APP_NAME}
     ${APP_NAME}.c
     base64.c
     CONSOLE
-    )
+)
 
 set_target_properties(${APP_NAME} PROPERTIES COMPILE_OPTIONS -ffunction-sections)
 if(CMAKE_SYSTEM_NAME MATCHES Retro68)
