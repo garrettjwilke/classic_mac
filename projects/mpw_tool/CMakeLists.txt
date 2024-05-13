@@ -1,6 +1,8 @@
 
 # An MPW tool is an application with a special
 # file type.
+cmake_minimum_required(VERSION 3.5)
+project(MPWTool)
 add_application(MPWTool
     TYPE "MPST"
     CREATOR "MPS "

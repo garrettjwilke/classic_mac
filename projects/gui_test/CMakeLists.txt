@@ -3,7 +3,8 @@
 # cd build
 # cmake .. -DCMAKE_TOOLCHAIN_FILE=path/to/Retro68-build/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake
 # make
-
+cmake_minimum_required(VERSION 3.5)
+project(gui_test)
 add_application(gui_test
     gui_test.c
     gui_test.r

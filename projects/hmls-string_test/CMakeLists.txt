@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.5)
+project(hmls-string_test)
 add_application(hmls-string_test
     hmls-string_test.c
     CONSOLE

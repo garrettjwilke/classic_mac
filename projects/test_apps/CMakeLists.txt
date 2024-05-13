@@ -14,7 +14,8 @@
 #
 #   You should have received a copy of the GNU General Public License
 #   along with Retro68.  If not, see <http://www.gnu.org/licenses/>.
-
+cmake_minimum_required(VERSION 3.5)
+project(test_apps)
 add_application(EmptyTest EmptyTest.c)
 
 add_application(ExceptionTest CONSOLE ExceptionTest.cc)

@@ -24,6 +24,8 @@
 # Step 1:
 # Build the code resource as a regular executable
 # (not using the add_application macro)
+cmake_minimum_required(VERSION 3.5)
+project(SystemExtension)
 add_executable(SystemExtension
     SystemExtension.c
     ShowInitIcon.c

@@ -50,7 +50,8 @@ void UncaughtExceptionOccurred()
 
 int main(int argc, char** argv)
 {
-    std::set_unexpected(&UnexpectedExceptionOccurred);
+    // this throws a warning when compiling. uncomment if strange things happen
+    //std::set_unexpected(&UnexpectedExceptionOccurred);
     std::set_terminate(&UncaughtExceptionOccurred);
     bool throwFail = false;
     bool catchFail = true;

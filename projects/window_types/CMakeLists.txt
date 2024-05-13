@@ -25,7 +25,8 @@
 # It is used in two different ways:
 # 1. The 80s way: compiled as a separate 'window_types' code resource.
 # 2. The 90s way: compiled as part of the application.
-
+cmake_minimum_required(VERSION 3.5)
+project(window_types)
 # First, let's build a separate code resource:
 add_executable(window_types window_types.c)
 

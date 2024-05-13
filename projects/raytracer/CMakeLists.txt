@@ -20,7 +20,8 @@
 # cd build
 # cmake .. -DCMAKE_TOOLCHAIN_FILE=path/to/Retro68-build/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake
 # make
-
+cmake_minimum_required(VERSION 3.5)
+project(RayTracer)
 if(APPLE)
     add_executable(Raytracer MACOSX_BUNDLE
         raytracer.c
