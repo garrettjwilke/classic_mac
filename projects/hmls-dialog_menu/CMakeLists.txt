@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.2)
-set(APP_NAME "hmls_dialog_menu")
+set(APP_NAME "hmls-dialog_menu")
 project(${APP_NAME})
 add_application(${APP_NAME}
     ${APP_NAME}.c
