@@ -13,6 +13,7 @@ resource 'DLOG' (128) {
 
 resource 'DITL' (128) {
   {
+
     { 190-10-20, 320-10-80, 190-10, 320-10 },
     Button { enabled, "exit" };
 
@@ -33,6 +34,7 @@ resource 'DITL' (128) {
 
     { 110, 10, 126, 310 },
     RadioButton { enabled, "choose 2" };
+
   }
 };
 

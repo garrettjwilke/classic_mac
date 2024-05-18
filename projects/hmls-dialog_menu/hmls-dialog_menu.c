@@ -20,14 +20,14 @@ pascal void ButtonFrameProc(DialogRef dlg, DialogItemIndex itemNo)
 
 int main(void)
 {
-#if !TARGET_API_MAC_CARBON
-  InitGraf(&qd.thePort);
-  InitFonts();
-  InitWindows();
-  InitMenus();
-  TEInit();
-  InitDialogs(NULL);
-#endif
+  #if !TARGET_API_MAC_CARBON
+    InitGraf(&qd.thePort);
+    InitFonts();
+    InitWindows();
+    InitMenus();
+    TEInit();
+    InitDialogs(NULL);
+  #endif
   DialogPtr dlg = GetNewDialog(128,0,(WindowPtr)-1);
   InitCursor();
   SelectDialogItemText(dlg,4,0,32767);
