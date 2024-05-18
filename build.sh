@@ -71,6 +71,9 @@ mkdir -p ${BUILD_DIR}/$PROJECT_NAME
 pushd ${BUILD_DIR}/$PROJECT_NAME
 
 # build the files
+export PATH="/opt/homebrew/opt/ncurses/bin:$PATH"
+export LDFLAGS="-L/opt/homebrew/opt/ncurses/lib"
+export CPPFLAGS="-I/opt/homebrew/opt/ncurses/include"
 cmake $SCRIPT_DIR/$1 -DCMAKE_TOOLCHAIN_FILE=$TOOLCHAIN_DIR/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake
 make
 
