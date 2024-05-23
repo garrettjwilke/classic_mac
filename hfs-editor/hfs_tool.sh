@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
 
-echo "add menu to ask for img file to mount"
-exit
-
+echo "not finished at all. it can extract files from an image."
+echo "if files in image have a space, then this tool will fail."
+echo ""
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 OUTPUT_DIR=extracted_files
-
-EPUB_DIR=test_book
-
-DISK_IMAGE="ebook_reader.img"
-DISK_NAME="$(basename $DISK_IMAGE .img)"
-DISK_SIZE="$(du $DISK_IMAGE | awk '{print $1}')"
 
 mount_disk() {
   echo "opening disk image: $DISK_IMAGE"
@@ -45,12 +39,13 @@ unmount_disk() {
   else
     echo "hfs drive unmounted"
   fi
+  echo ""
+  echo "attempting to eject: $i"
   for i in $(ls /dev/disk*)
   do
     DISK_CHECK=$(diskutil info $i | grep "$DISK_SIZE" | awk '{print $8}')
     if [ "$DISK_CHECK" == "$DISK_SIZE" ]
     then
-      echo "attempting to eject: $i"
       DISK_ID=$(basename $i)
       diskutil eject $DISK_ID
       if [ $? -gt 0 ]
@@ -62,26 +57,70 @@ unmount_disk() {
 }
 
 extract_data() {
-if [ -d $OUTPUT_DIR ]
-then
-  rm -rf $OUTPUT_DIR
-fi
-mkdir $OUTPUT_DIR
-echo "getting file list in hfs disk"
-FILE_LIST=$(sudo hls :$EPUB_DIR)
-for i in $FILE_LIST
-do
-  echo "attempting to copy from hfs: $i"
-  sudo hcopy :$EPUB_DIR:$i $OUTPUT_DIR
-  if [ $? -gt 0 ]
+  if [ -d $OUTPUT_DIR ]
   then
-    echo "copy file failed: $i"
-  else
-    echo "file copied to: ${OUTPUT_DIR}/$i"
+    rm -rf $OUTPUT_DIR
   fi
-  echo ""
-done
+  mkdir $OUTPUT_DIR
+  echo "getting file list in hfs disk"
+  FILE_LIST=$(sudo hls :)
+  for i in $FILE_LIST
+  do
+    echo "attempting to copy from hfs: $i"
+    sudo hcopy :$i $OUTPUT_DIR
+    if [ $? -gt 0 ]
+    then
+      echo "copy file failed: $i"
+      NEW_FILE_LIST=$(sudo hls :$i)
+      mkdir $OUTPUT_DIR/$i
+      for j in $NEW_FILE_LIST
+      do
+        sudo hcopy :$i:$j $OUTPUT_DIR/$i
+      done
+    else
+      echo "file copied to: ${OUTPUT_DIR}/$i"
+    fi
+    echo ""
+  done
 }
+
+case $1 in
+  "-e"|"--extract")
+    OPTION="extract"
+    ;;
+  "-i"|"--inject")
+    OPTION="inject"
+    ;;
+  *)
+    echo "invalid option. see --help"
+    exit
+    ;;
+esac
+
+if [ "$OPTION" == "" ]
+then
+  echo "no option set. use -e or -i to extract or inject"
+  exit
+elif [ "$OPTION" == "extract" ]
+then
+  if [ "$2" == "" ]
+  then
+    echo "no image file to extract. see --help"
+    exit
+  else
+    DISK_IMAGE=$2
+  fi
+elif [ "$OPTION" == "inject" ]
+then
+  if [ "$2" == "" ]
+  then
+    echo "no directory or files to inject. see --help"
+    exit
+  fi
+fi
+
+DISK_NAME="$(basename $DISK_IMAGE .img)"
+DISK_SIZE="$(du $DISK_IMAGE | awk '{print $1}')"
 
 pushd $SCRIPT_DIR
 
@@ -101,5 +140,8 @@ then
   mount_disk
 fi
 
-extract_data
+if [ "$OPTION" == "extract" ]
+then
+  extract_data
+fi
 unmount_disk
