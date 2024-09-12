@@ -1,5 +1,5 @@
 # classic mac application development
-this is my attempt at making it as easy as possible to build a classic 68k or ppc macintosh application. at the time of this writing, i have only tested with mini vmac and a Macintosh SE (4MB RAM/16Mhz radius accelerator CPU/bluescsi drive).
+at the time of this writing, i have only tested with mini vmac and a Macintosh SE (4MB RAM/16Mhz radius accelerator CPU/bluescsi drive).
 
 ## get it working
 
