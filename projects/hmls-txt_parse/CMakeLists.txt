@@ -1,4 +1,5 @@
 set(APP_NAME "hmls-txt_parse")
+cmake_minimum_required(VERSION 3.16)
 add_application(${APP_NAME}
     ${APP_NAME}.c
     CONSOLE
