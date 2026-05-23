@@ -2,12 +2,30 @@
 #include <stdlib.h>
 #include <string.h>
 #include <Quickdraw.h>
+#include <Menus.h>
 #include <StandardFile.h>
 #include <Files.h>
-#include <Memory.h>
+#include <Events.h>
 
 #include "zip_lite.h"
 #include "xhtml_lite.h"
+#include "epub_log.h"
+#include "mac_fs.h"
+
+#ifndef dupErr
+#define dupErr (-48)
+#endif
+
+typedef struct {
+    char* buf;
+    size_t pos;
+} FillBufCtx;
+
+static void fill_buf_callback(const char* data, size_t size, void* user_data) {
+    FillBufCtx* ctx = (FillBufCtx*)user_data;
+    memcpy(ctx->buf + ctx->pos, data, size);
+    ctx->pos += size;
+}
 
 void p2cstrcpy(char* dst, ConstStr255Param src) {
     int len = src[0];
@@ -15,195 +33,289 @@ void p2cstrcpy(char* dst, ConstStr255Param src) {
     dst[len] = '\0';
 }
 
+static void basename_no_ext(const char* path, char* out, int outlen) {
+    const char* start = path;
+    const char* slash;
+    const char* dot;
+    int len;
+
+    slash = strrchr(path, '/');
+    if (!slash) slash = strrchr(path, ':');
+    if (slash) start = slash + 1;
+
+    dot = strrchr(start, '.');
+    len = dot ? (int)(dot - start) : (int)strlen(start);
+    if (len >= outlen) len = outlen - 1;
+    memcpy(out, start, len);
+    out[len] = '\0';
+}
+
 typedef struct {
     ZipArchive* zip;
     char* content_dir;
-    char* base_name;
+    char output_folder[64];
     int part_idx;
 } ConverterContext;
 
 typedef struct {
-    FILE* f;
-    long count;
     XHTML_Parser parser;
 } ParserState;
 
-void write_callback(const char* text, void* user_data) {
-    ParserState* ps = (ParserState*)user_data;
-    size_t len = strlen(text);
-    if (fputs(text, ps->f) != EOF) {
-        ps->count += len;
-    }
+static void write_callback(const char* text, void* user_data) {
+    FILE* out = (FILE*)user_data;
+    size_t n;
+
+    if (!out || !text || !text[0]) return;
+    n = strlen(text);
+    fwrite(text, 1, n, out);
 }
 
-void zip_callback(const char* data, size_t size, void* user_data) {
+static void zip_callback(const char* data, size_t size, void* user_data) {
     ParserState* ps = (ParserState*)user_data;
     xhtml_parser_process(&ps->parser, data, size);
 }
 
-void spine_callback(const char* href, void* user_data) {
+static char g_spine_zip_path[256];
+static char g_spine_out_path[64];
+static char g_spine_msg[64];
+
+static void spine_callback(const char* href, void* user_data) {
     ConverterContext* ctx = (ConverterContext*)user_data;
-    char full_path[512];
+    char* zip_path = g_spine_zip_path;
+    char* out_path = g_spine_out_path;
+    char* msg = g_spine_msg;
+    ZipEntry entry;
+    FILE* out;
+
     if (ctx->content_dir[0]) {
-        sprintf(full_path, "%s/%s", ctx->content_dir, href);
+        sprintf(zip_path, "%s/%s", ctx->content_dir, href);
     } else {
-        strcpy(full_path, href);
+        strcpy(zip_path, href);
     }
 
-    ZipEntry entry;
-    if (zip_find_entry(ctx->zip, full_path, &entry)) {
-        printf("  Part %d: %s (%ld bytes)\n", ctx->part_idx, full_path, entry.uncomp_size);
-        long free_mem = MaxBlock();
-        printf("    RAM: %ld\n", free_mem);
-        fflush(stdout);
+    if (!zip_find_entry(ctx->zip, zip_path, &entry)) return;
 
-        // We still need memory for the compressed buffer and the uncompressed output.
-        // In zip_stream_entry (current impl), we still malloc both.
-        // But let's see if it fits now that we don't have overhead.
-        
-        char part_path[256];
-        sprintf(part_path, "%s_p%d.txt", ctx->base_name, ctx->part_idx);
-        
-        FILE* out = fopen(part_path, "wb");
-        if (out) {
-            ParserState ps;
-            ps.f = out;
-            ps.count = 0;
-            xhtml_parser_init(&ps.parser, write_callback, &ps);
-            
-            if (zip_stream_entry(ctx->zip, &entry, zip_callback, &ps)) {
-                printf("    Wrote %ld chars to %s\n", ps.count, part_path);
-            } else {
-                printf("    Error: Decompression failed or Out of Memory.\n");
-            }
-            fclose(out);
+    sprintf(out_path, "out_%02d.txt", ctx->part_idx);
+    mac_ensure_parent_dirs(out_path);
+
+    out = fopen(out_path, "wb");
+    if (!out) return;
+
+    {
+        ParserState ps;
+        xhtml_parser_init(&ps.parser, write_callback, out);
+
+        if (zip_stream_entry(ctx->zip, &entry, zip_callback, &ps)) {
+            sprintf(msg, "spine part %d ok", ctx->part_idx);
+            epub_log(msg);
         } else {
-            printf("    Error: Could not create %s\n", part_path);
+            epub_log("spine: zip_stream_entry failed");
         }
-        ctx->part_idx++;
+        fclose(out);
     }
+    ctx->part_idx++;
 }
 
-void convert_epub(const char* epub_path) {
-    printf("Opening: %s\n", epub_path);
-    ZipArchive* zip = zip_open(epub_path);
-    if (!zip) {
-        printf("Error: Could not open EPUB.\n");
-        return;
-    }
-
-    ZipEntry entry;
-    char* container_xml = NULL;
-    if (zip_find_entry(zip, "META-INF/container.xml", &entry)) {
-        container_xml = malloc(entry.uncomp_size + 1);
-        if (zip_stream_entry(zip, &entry, NULL, NULL)) { // Need a simple read here
-             // Wait, zip_stream_entry needs a callback.
-             // Let's just use a simple block read for small metadata files.
-        }
-        // Actually, let's just implement a simple zip_read_entry again for small files.
-    }
-    
-    // I'll fix convert_epub to use zip_stream_entry with a buffer for metadata
-}
-
-// Rewriting convert_epub with a helper for small files
 static char* read_small_file(ZipArchive* zip, const char* name) {
     ZipEntry entry;
     if (zip_find_entry(zip, name, &entry)) {
         char* buf = malloc(entry.uncomp_size + 1);
-        if (!buf) return NULL;
-        
-        // Use a simple buffer-filling callback
-        struct { char* b; size_t p; } ctx = { buf, 0 };
-        void fill_buf(const char* d, size_t s, void* u) {
-            struct { char* b; size_t p; } *c = u;
-            memcpy(c->b + c->p, d, s);
-            c->p += s;
+        if (!buf) {
+            epub_log("read_small_file: malloc failed");
+            return NULL;
         }
-        
-        if (zip_stream_entry(zip, &entry, fill_buf, &ctx)) {
+
+        FillBufCtx ctx = { buf, 0 };
+        if (zip_stream_entry(zip, &entry, fill_buf_callback, &ctx)) {
             buf[entry.uncomp_size] = '\0';
             return buf;
         }
         free(buf);
+        epub_log("read_small_file: zip_stream_entry failed");
+    } else {
+        epub_log("read_small_file: entry not found");
     }
     return NULL;
 }
 
+static int extract_epub_to_folder(ZipArchive* zip, const char* folder_mac) {
+    ZipExtractFolderCtx stats;
+    char msg[80];
+
+    epub_log("extract: start");
+    if (!zip_extract_all_to_folder(zip, folder_mac, &stats)) {
+        epub_log("extract: foreach failed");
+        return 0;
+    }
+
+    sprintf(msg, "extract: %d ok %d failed", stats.ok, stats.fail);
+    epub_log(msg);
+    printf("%s\n", msg);
+    fflush(stdout);
+    return stats.ok > 0;
+}
+
+static char g_convert_msg[128];
+static char g_folder_mac[64];
+static char g_content_dir[256];
+
 void convert_epub_v2(const char* epub_path) {
+    char* msg = g_convert_msg;
+    char* folder_mac = g_folder_mac;
+    ZipArchive* zip;
+
+    basename_no_ext(epub_path, folder_mac, sizeof(folder_mac));
+
+    sprintf(msg, "3 open %s", epub_path);
+    epub_log_status(msg);
     printf("Opening: %s\n", epub_path);
-    ZipArchive* zip = zip_open(epub_path);
+    fflush(stdout);
+
+    sprintf(msg, "convert: opening %s", epub_path);
+    epub_log(msg);
+
+    zip = zip_open(epub_path);
     if (!zip) {
+        epub_log("convert: zip_open failed");
         printf("Error: Could not open EPUB.\n");
+        fflush(stdout);
         return;
     }
 
-    char* container_xml = read_small_file(zip, "META-INF/container.xml");
-    if (!container_xml) {
-        printf("Error: No container.xml\n");
+    printf("Preparing folder: %s\n", folder_mac);
+    fflush(stdout);
+    epub_log("convert: enter output folder");
+    if (!mac_enter_output_folder(folder_mac)) {
+        epub_log("convert: could not enter output folder");
         zip_close(zip);
         return;
     }
 
-    char* rootfile_path = find_rootfile(container_xml);
-    free(container_xml);
-    if (!rootfile_path) {
-        printf("Error: No rootfile.\n");
+    printf("Extracting files...\n");
+    fflush(stdout);
+    if (!extract_epub_to_folder(zip, "")) {
         zip_close(zip);
         return;
     }
 
-    char content_dir[256] = "";
-    char* last_slash = strrchr(rootfile_path, '/');
-    if (last_slash) {
-        size_t len = last_slash - rootfile_path;
-        memcpy(content_dir, rootfile_path, len);
-        content_dir[len] = '\0';
-    }
+    epub_log("convert: reading container.xml");
+    {
+        char* container_xml = read_small_file(zip, "META-INF/container.xml");
+        char* rootfile_path;
+        char* content_dir = g_content_dir;
+        char* opf_xml;
+        ConverterContext ctx;
 
-    char* opf_xml = read_small_file(zip, rootfile_path);
-    if (!opf_xml) {
-        printf("Error: Could not read OPF.\n");
+        if (!container_xml) {
+            epub_log("convert: no container.xml");
+            zip_close(zip);
+            return;
+        }
+
+        rootfile_path = find_rootfile(container_xml);
+        free(container_xml);
+        if (!rootfile_path) {
+            epub_log("convert: no rootfile");
+            zip_close(zip);
+            return;
+        }
+
+        content_dir[0] = '\0';
+        {
+            char* last_slash = strrchr(rootfile_path, '/');
+            if (last_slash) {
+                size_t len = last_slash - rootfile_path;
+                memcpy(content_dir, rootfile_path, len);
+                content_dir[len] = '\0';
+            }
+        }
+
+        opf_xml = read_small_file(zip, rootfile_path);
+        if (!opf_xml) {
+            free(rootfile_path);
+            zip_close(zip);
+            return;
+        }
+
+        ctx.zip = zip;
+        strcpy(ctx.output_folder, folder_mac);
+        strcpy(ctx.content_dir, content_dir);
+        ctx.part_idx = 1;
+
+        epub_log("convert: scanning spine");
+        find_spine_items(opf_xml, spine_callback, &ctx);
+
+        free(opf_xml);
         free(rootfile_path);
-        zip_close(zip);
-        return;
     }
 
-    char base_name[256];
-    strcpy(base_name, epub_path);
-    char* dot = strrchr(base_name, '.');
-    if (dot) *dot = '\0';
-
-    ConverterContext ctx = { zip, content_dir, base_name, 1 };
-    find_spine_items(opf_xml, spine_callback, &ctx);
-
-    free(opf_xml);
-    free(rootfile_path);
     zip_close(zip);
-    printf("\nConversion finished.\n");
+    epub_log("convert: finished");
+    printf("\nDone. Files in folder \"%s\"\n", folder_mac);
+    fflush(stdout);
+}
+
+static void pump_events(void) {
+    EventRecord event;
+    int i;
+    for (i = 0; i < 8; i++) {
+        (void)EventAvail(everyEvent, &event);
+        SystemTask();
+    }
+}
+
+static int pick_epub_file(char* filename, int filename_len) {
+    SFReply reply;
+    Point where = {80, 50};
+
+    SFGetFile(where, "\p", NULL, -1, NULL, NULL, &reply);
+    if (!reply.good) return 0;
+
+    if (reply.vRefNum > 0) {
+        SetVol(NULL, reply.vRefNum);
+    }
+    p2cstrcpy(filename, reply.fName);
+    if (filename_len > 0) {
+        filename[filename_len - 1] = '\0';
+    }
+    return 1;
+}
+
+static void run_conversion(const char* filename) {
+    epub_set_vref(0);
+    zip_set_vref(0);
+    mac_fs_set_vref(0);
+
+    epub_log_init();
+    epub_log("main: file selected");
+    mac_fs_set_location(filename);
+
+    epub_log_status("2 converting");
+    convert_epub_v2(filename);
+
+    epub_log_status("9 done");
+    epub_log_close();
 }
 
 int main(void) {
+    static char filename[64];
+
     InitGraf(&qd.thePort);
     InitFonts();
     InitWindows();
     InitMenus();
-    TEInit();
     InitDialogs(NULL);
+
+    SetMenuBar(GetNewMBar(128));
+    AppendResMenu(GetMenu(128), 'DRVR');
+    DrawMenuBar();
     InitCursor();
+    pump_events();
 
-    SFReply reply;
-    Point where = {80, 50};
-    SFGetFile(where, "\pSelect EPUB file:", NULL, -1, NULL, NULL, &reply);
-
-    if (reply.good) {
-        SetVol(NULL, reply.vRefNum);
-        char filename[256];
-        p2cstrcpy(filename, reply.fName);
-        convert_epub_v2(filename);
+    if (pick_epub_file(filename, (int)sizeof(filename))) {
+        run_conversion(filename);
     }
 
-    printf("\nPress any key to exit\n");
-    getchar();
+    ExitToShell();
     return 0;
 }

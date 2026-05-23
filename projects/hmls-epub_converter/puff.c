@@ -83,6 +83,7 @@
 #include "puff.h"               /* prototype for puff() */
 
 #define local static            /* for local function definitions */
+#define SLOW                    /* smaller decode(); safer on 68000 */
 
 /*
  * Maximums for allocations and loops.  It is not useful to change these --
@@ -111,6 +112,9 @@ struct state {
     /* input limit error return state for bits() and decode() */
     jmp_buf env;
 };
+
+/* Single-threaded; keeps jmp_buf off the stack (saves ~1KB on 68000). */
+static struct state puff_state;
 
 /*
  * Return need bits from the input stream.  This always leaves less than
@@ -667,9 +671,10 @@ local int dynamic(struct state *s)
     int nlen, ndist, ncode;             /* number of lengths in descriptor */
     int index;                          /* index of lengths[] */
     int err;                            /* construct() return value */
-    short lengths[MAXCODES];            /* descriptor code lengths */
-    short lencnt[MAXBITS+1], lensym[MAXLCODES];         /* lencode memory */
-    short distcnt[MAXBITS+1], distsym[MAXDCODES];       /* distcode memory */
+    /* Static: ~1.3KB stack arrays overflowed default Mac app stack (address error). */
+    static short lengths[MAXCODES];
+    static short lencnt[MAXBITS+1], lensym[MAXLCODES];
+    static short distcnt[MAXBITS+1], distsym[MAXDCODES];
     struct huffman lencode, distcode;   /* length and distance codes */
     static const short order[19] =      /* permutation of code length codes */
         {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
@@ -795,46 +800,40 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
          const unsigned char *source,   /* pointer to source data pointer */
          unsigned long *sourcelen)      /* amount of input available */
 {
-    struct state s;             /* input/output state */
-    int last, type;             /* block information */
-    int err;                    /* return value */
+    struct state *s = &puff_state;
+    int last, type;
+    int err;
 
-    /* initialize output state */
-    s.out = dest;
-    s.outlen = *destlen;                /* ignored if dest is NIL */
-    s.outcnt = 0;
+    s->out = dest;
+    s->outlen = *destlen;
+    s->outcnt = 0;
+    s->in = source;
+    s->inlen = *sourcelen;
+    s->incnt = 0;
+    s->bitbuf = 0;
+    s->bitcnt = 0;
 
-    /* initialize input state */
-    s.in = source;
-    s.inlen = *sourcelen;
-    s.incnt = 0;
-    s.bitbuf = 0;
-    s.bitcnt = 0;
-
-    /* return if bits() or decode() tries to read past available input */
-    if (setjmp(s.env) != 0)             /* if came back here via longjmp() */
-        err = 2;                        /* then skip do-loop, return error */
+    if (setjmp(s->env) != 0)
+        err = 2;
     else {
-        /* process blocks until last block or error */
         do {
-            last = bits(&s, 1);         /* one if last block */
-            type = bits(&s, 2);         /* block type 0..3 */
+            last = bits(s, 1);
+            type = bits(s, 2);
             err = type == 0 ?
-                    stored(&s) :
+                    stored(s) :
                     (type == 1 ?
-                        fixed(&s) :
+                        fixed(s) :
                         (type == 2 ?
-                            dynamic(&s) :
-                            -1));       /* type == 3, invalid */
+                            dynamic(s) :
+                            -1));
             if (err != 0)
-                break;                  /* return with error */
+                break;
         } while (!last);
     }
 
-    /* update the lengths and return */
     if (err <= 0) {
-        *destlen = s.outcnt;
-        *sourcelen = s.incnt;
+        *destlen = s->outcnt;
+        *sourcelen = s->incnt;
     }
     return err;
 }
