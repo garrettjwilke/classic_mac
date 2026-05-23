@@ -45,10 +45,10 @@ resource 'MBAR' (128) {
 };
 
 resource 'WIND' (128) {
-    {60, 40, 280, 470}, documentProc;
+    {20, 0, 342, 512}, zoomDocProc;
     invisible;
     goAway;
-    0, "Text Viewer";
+    0, "ebook reader";
     noAutoCenter;
 };
 

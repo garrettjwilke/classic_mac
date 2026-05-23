@@ -6,7 +6,7 @@ add_application(${APP_NAME}
     ${APP_NAME}.r
     )
 
-set_target_properties(${APP_NAME} PROPERTIES COMPILE_OPTIONS -ffunction-sections)
+set_target_properties(${APP_NAME} PROPERTIES COMPILE_OPTIONS "-m68000;-msoft-float;-ffunction-sections")
 if(CMAKE_SYSTEM_NAME MATCHES Retro68)
     set_target_properties(${APP_NAME} PROPERTIES LINK_FLAGS "-Wl,-gc-sections -Wl,--mac-strip-macsbug")
 else()
