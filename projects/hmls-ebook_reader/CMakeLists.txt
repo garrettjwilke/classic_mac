@@ -3,6 +3,7 @@ set(APP_NAME "hmls-ebook_reader")
 project(${APP_NAME})
 add_application(${APP_NAME}
     ${APP_NAME}.c
+    book_index.c
     ${APP_NAME}.r
     )
 

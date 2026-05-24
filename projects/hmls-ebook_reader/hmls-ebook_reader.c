@@ -14,6 +14,9 @@
 
 #include <string.h>
 
+#include "book_index.h"
+#include "reader_doc.h"
+
 enum {
     kMenuApple = 128,
     kMenuFile = 129,
@@ -42,40 +45,10 @@ enum {
     kGoButtonWidth = 72,
     kNavItemGap = 10,
     kTextInset = 6,
-    kPageBufSize = 8192,
     kLineBufSize = 256,
-    kPageHistoryMax = 64,
     kMinWindowWidth = 240,
     kMinWindowHeight = 180
 };
-
-typedef struct ReaderDoc {
-    short fileRef;
-    const char* memText;
-    long memLen;
-    long fileLen;
-    long pageOffset;
-    long nextPageOffset;
-    char* pageText;
-    size_t pageTextLen;
-    Boolean hasFile;
-    Boolean canGoBack;
-    Boolean canGoForward;
-    ControlHandle btnPrev;
-    ControlHandle btnNext;
-    ControlHandle btnGoTo;
-    TEHandle pageNumTE;
-    Rect pageNumEditRect;
-    short currentPage;
-    short totalPages; /* 0 = unknown until end of book is reached */
-    Rect textBox;
-    short lineHeight;
-    short linesPerPage;
-    short maxPixelWidth;
-    long pageHistory[kPageHistoryMax];
-    short pageHistoryPage[kPageHistoryMax];
-    short pageHistoryCount;
-} ReaderDoc;
 
 static WindowRef gMainWindow;
 
@@ -86,6 +59,7 @@ static void TurnPage(WindowRef w, short direction);
 static void GoToPageNumber(WindowRef w, short pageNum);
 static void DoContentClick(WindowRef w, Point localPt);
 static void DoKeyPage(WindowRef w, long keyMessage);
+static void ForceRedrawWindow(WindowRef w);
 
 static void SetButtonTitle(ControlHandle c, const char* title) {
     Str255 ptitle;
@@ -102,27 +76,45 @@ static ReaderDoc* GetDoc(WindowRef w) {
     return (ReaderDoc*)GetWRefCon(w);
 }
 
+static void InvalidateReadBuf(ReaderDoc* doc) {
+    doc->readBufPos = -1;
+    doc->readBufCount = 0;
+}
+
 static int ReadRawByte(ReaderDoc* doc, long* pos) {
-    Byte byte;
-    long count = 1;
+    long offset = *pos;
+    long count;
+    long index;
     OSErr err;
 
-    if (doc->fileRef <= 0 || *pos >= doc->fileLen) {
+    if (doc->fileRef <= 0 || offset >= doc->fileLen) {
         return -1;
     }
 
-    err = SetFPos(doc->fileRef, fsFromStart, *pos);
-    if (err != noErr) {
-        return -1;
+    if (doc->readBufPos < 0 || offset < doc->readBufPos
+        || offset >= doc->readBufPos + (long)doc->readBufCount) {
+        doc->readBufPos = offset;
+        count = kReadBufSize;
+        if (doc->readBufPos + count > doc->fileLen) {
+            count = doc->fileLen - doc->readBufPos;
+        }
+        if (count <= 0) {
+            return -1;
+        }
+        err = SetFPos(doc->fileRef, fsFromStart, doc->readBufPos);
+        if (err != noErr) {
+            return -1;
+        }
+        err = FSRead(doc->fileRef, &count, (Ptr)doc->readBuf);
+        if (err != noErr || count == 0) {
+            return -1;
+        }
+        doc->readBufCount = (short)count;
     }
 
-    err = FSRead(doc->fileRef, &count, (Ptr)&byte);
-    if (err != noErr || count == 0) {
-        return -1;
-    }
-
+    index = offset - doc->readBufPos;
     (*pos)++;
-    return (int)byte;
+    return (int)doc->readBuf[index];
 }
 
 static int ReadSanitizedChar(ReaderDoc* doc, long* pos) {
@@ -229,7 +221,7 @@ static void AppendLineToPage(ReaderDoc* doc, const char* line, short len) {
     doc->pageText[doc->pageTextLen] = '\0';
 }
 
-static long ContentLength(ReaderDoc* doc) {
+long ReaderContentLength(ReaderDoc* doc) {
     if (doc->fileRef > 0) {
         return doc->fileLen;
     }
@@ -239,7 +231,7 @@ static long ContentLength(ReaderDoc* doc) {
     return 0;
 }
 
-static long AdvancePageFromOffset(ReaderDoc* doc, long offset) {
+long ReaderAdvancePage(ReaderDoc* doc, long offset) {
     char lineBuf[kLineBufSize];
     short lineLen;
     short line;
@@ -250,12 +242,13 @@ static long AdvancePageFromOffset(ReaderDoc* doc, long offset) {
 
     pos = offset;
     atEOF = false;
-    contentLen = ContentLength(doc);
+    contentLen = ReaderContentLength(doc);
 
     if (doc->fileRef > 0) {
         if (SetFPos(doc->fileRef, fsFromStart, offset) != noErr) {
             return offset;
         }
+        InvalidateReadBuf(doc);
     }
 
     for (line = 0; line < doc->linesPerPage; line++) {
@@ -290,6 +283,7 @@ static long AdvancePageFromOffset(ReaderDoc* doc, long offset) {
                     long rewindCount = lineLen - breakAt;
                     pos -= rewindCount;
                     SetFPos(doc->fileRef, fsFromStart, pos);
+                    InvalidateReadBuf(doc);
                 } else {
                     pos -= (lineLen - breakAt);
                 }
@@ -410,6 +404,7 @@ static Boolean BuildPageAtOffset(ReaderDoc* doc, long offset) {
         if (SetFPos(doc->fileRef, fsFromStart, offset) != noErr) {
             return false;
         }
+        InvalidateReadBuf(doc);
     }
 
     for (line = 0; line < doc->linesPerPage; line++) {
@@ -444,6 +439,7 @@ static Boolean BuildPageAtOffset(ReaderDoc* doc, long offset) {
                     long rewindCount = lineLen - breakAt;
                     pos -= rewindCount;
                     SetFPos(doc->fileRef, fsFromStart, pos);
+                    InvalidateReadBuf(doc);
                 } else {
                     pos -= (lineLen - breakAt);
                 }
@@ -470,7 +466,7 @@ static Boolean BuildPageAtOffset(ReaderDoc* doc, long offset) {
 
     doc->nextPageOffset = pos;
     doc->canGoBack = doc->currentPage > 1;
-    doc->canGoForward = pos < ContentLength(doc);
+    doc->canGoForward = pos < ReaderContentLength(doc);
     if (!doc->canGoForward) {
         if (doc->totalPages <= 0 || doc->currentPage > doc->totalPages) {
             doc->totalPages = doc->currentPage;
@@ -488,7 +484,7 @@ static long ScanToPageOffset(ReaderDoc* doc, short targetPage) {
     }
 
     for (page = 1; page < targetPage; page++) {
-        pos = AdvancePageFromOffset(doc, pos);
+        pos = ReaderAdvancePage(doc, pos);
         if ((page & 3) == 0) {
             SystemTask();
         }
@@ -557,6 +553,13 @@ static void LayoutReaderWindow(WindowRef w) {
         }
     }
     doc->maxPixelWidth = (box.right - box.left) - (kTextInset * 2);
+
+    if (doc->bookIndexRef > 0
+        && (doc->linesPerPage != doc->bookLinesPerPage || doc->lineHeight != doc->bookLineHeight
+            || doc->maxPixelWidth != doc->bookMaxPixelWidth)) {
+        BookIndexClose(doc);
+        doc->totalPages = 0;
+    }
 
     navBar.left = box.left;
     navBar.right = box.right;
@@ -698,12 +701,22 @@ static void GoToPageNumber(WindowRef w, short pageNum) {
 
     doc->pageHistoryCount = 0;
 
-    if (pageNum > doc->currentPage) {
+    if (BookIndexIsOpen(doc)) {
+        if (pageNum > doc->bookPageCount) {
+            pageNum = (short)doc->bookPageCount;
+        }
+        if (BookIndexPageOffset(doc, pageNum, &offset) == noErr) {
+            doc->currentPage = pageNum;
+        } else {
+            offset = ScanToPageOffset(doc, pageNum);
+            doc->currentPage = pageNum;
+        }
+    } else if (pageNum > doc->currentPage) {
         offset = doc->pageOffset;
         while (doc->currentPage < pageNum) {
-            offset = AdvancePageFromOffset(doc, offset);
+            offset = ReaderAdvancePage(doc, offset);
             doc->currentPage++;
-            if (offset >= ContentLength(doc)) {
+            if (offset >= ReaderContentLength(doc)) {
                 break;
             }
             SystemTask();
@@ -750,8 +763,13 @@ static void TurnPage(WindowRef w, short direction) {
             BuildPageAtOffset(doc, doc->pageHistory[doc->pageHistoryCount]);
         } else {
             doc->currentPage--;
-            offset = ScanToPageOffset(doc, doc->currentPage);
-            BuildPageAtOffset(doc, offset);
+            if (BookIndexIsOpen(doc)
+                && BookIndexPageOffset(doc, doc->currentPage, &offset) == noErr) {
+                BuildPageAtOffset(doc, offset);
+            } else {
+                offset = ScanToPageOffset(doc, doc->currentPage);
+                BuildPageAtOffset(doc, offset);
+            }
         }
     }
 
@@ -799,7 +817,9 @@ static void SetWelcomeText(WindowRef w) {
         "left and right arrow keys, or enter a page number and "
         "Go To Page.\r\r"
         "Long chapters are read from disk in sections; there is "
-        "no 32K limit.";
+        "no 32K limit.\r\r"
+        "A .book index file is created beside each text file "
+        "for fast page jumps.";
 
     if (!doc) {
         return;
@@ -859,7 +879,8 @@ static OSErr OpenFromSFReply(const SFReply* reply, short* refNum, long* fileLen)
     return err;
 }
 
-static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr255Param title) {
+static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr255Param title,
+    const SFReply* reply) {
     ReaderDoc* doc = GetDoc(w);
 
     if (!doc) {
@@ -884,10 +905,26 @@ static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr
     doc->nextPageOffset = 0;
     doc->currentPage = 1;
     doc->totalPages = 0;
+    doc->bookIndexPending = false;
+    InvalidateReadBuf(doc);
+    BookIndexClose(doc);
 
     SetPort(w);
     LayoutReaderWindow(w);
-    InvalidateReader(w);
+
+    if (doc->currentPage < 1) {
+        doc->currentPage = 1;
+    }
+    BuildPageAtOffset(doc, doc->pageOffset);
+    UpdatePageNavDisplay(doc);
+    UpdatePageButtons(doc);
+    ForceRedrawWindow(w);
+
+    if (reply) {
+        doc->bookIndexPending = true;
+        doc->bookSourceVRefNum = reply->vRefNum;
+        memcpy(doc->bookSourceName, reply->fName, reply->fName[0] + 1);
+    }
 }
 
 void DoCloseWindow(WindowRef w) {
@@ -902,9 +939,12 @@ void DoCloseWindow(WindowRef w) {
 
     if (w == gMainWindow) {
         ReaderDoc* doc = GetDoc(w);
-        if (doc && doc->fileRef > 0) {
-            FSClose(doc->fileRef);
-            doc->fileRef = 0;
+        if (doc) {
+            BookIndexClose(doc);
+            if (doc->fileRef > 0) {
+                FSClose(doc->fileRef);
+                doc->fileRef = 0;
+            }
         }
         SetWelcomeText(gMainWindow);
         return;
@@ -913,6 +953,7 @@ void DoCloseWindow(WindowRef w) {
     {
         ReaderDoc* doc = GetDoc(w);
         if (doc) {
+            BookIndexClose(doc);
             if (doc->fileRef > 0) {
                 FSClose(doc->fileRef);
             }
@@ -957,7 +998,7 @@ void DoOpenFile(void) {
     }
 
     SelectWindow(gMainWindow);
-    AttachBookToWindow(gMainWindow, refNum, fileLen, reply.fName);
+    AttachBookToWindow(gMainWindow, refNum, fileLen, reply.fName, &reply);
 }
 
 void AdjustMenus(void) {
@@ -1016,6 +1057,26 @@ void DoMenuCommand(long menuCommand) {
     }
 
     HiliteMenu(0);
+}
+
+static void ForceRedrawWindow(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+
+    if (!doc) {
+        return;
+    }
+
+    SetPort(w);
+    DrawReaderPage(w);
+    if (doc->btnPrev) {
+        Draw1Control(doc->btnPrev);
+    }
+    if (doc->btnNext) {
+        Draw1Control(doc->btnNext);
+    }
+    if (doc->btnGoTo) {
+        Draw1Control(doc->btnGoTo);
+    }
 }
 
 void DoUpdate(WindowRef w) {
@@ -1157,17 +1218,38 @@ int main(void) {
     for (;;) {
         EventRecord e;
         WindowRef win;
+        ReaderDoc* idleDoc = GetDoc(gMainWindow);
+        Boolean building = idleDoc && BookIndexIsBuilding(idleDoc);
+        Boolean gotEvent;
 
         SystemTask();
 
-        {
-            ReaderDoc* idleDoc = GetDoc(gMainWindow);
-            if (idleDoc && idleDoc->pageNumTE) {
-                TEIdle(idleDoc->pageNumTE);
-            }
+        if (idleDoc && idleDoc->bookIndexPending && !building) {
+            SFReply pendingReply;
+
+            memset(&pendingReply, 0, sizeof(pendingReply));
+            pendingReply.good = true;
+            pendingReply.vRefNum = idleDoc->bookSourceVRefNum;
+            memcpy(pendingReply.fName, idleDoc->bookSourceName, idleDoc->bookSourceName[0] + 1);
+            idleDoc->bookIndexPending = false;
+            (void)BookIndexPrepare(gMainWindow, idleDoc, &pendingReply);
         }
 
-        if (GetNextEvent(everyEvent, &e)) {
+        if (building) {
+            BookIndexIdle(gMainWindow, idleDoc);
+        }
+
+        if (idleDoc && idleDoc->pageNumTE) {
+            TEIdle(idleDoc->pageNumTE);
+        }
+
+        if (building) {
+            gotEvent = WaitNextEvent(everyEvent, &e, 1, NULL);
+        } else {
+            gotEvent = GetNextEvent(everyEvent, &e);
+        }
+
+        if (gotEvent) {
             switch (e.what) {
                 case keyDown:
                 case autoKey:
@@ -1188,7 +1270,10 @@ int main(void) {
                                 TEKey(key, doc->pageNumTE);
                             }
                         } else if (win && GetWindowKind(win) >= 0) {
-                            DoKeyPage(win, e.message);
+                            ReaderDoc* keyDoc = GetDoc(win);
+                            if (!keyDoc || !BookIndexIsBuilding(keyDoc)) {
+                                DoKeyPage(win, e.message);
+                            }
                         }
                     }
                     break;
@@ -1228,6 +1313,8 @@ int main(void) {
                     break;
                 case updateEvt:
                     DoUpdate((WindowRef)e.message);
+                    break;
+                case nullEvent:
                     break;
             }
         }

@@ -71,6 +71,28 @@ resource 'DITL' (128) {
     }
 };
 
+resource 'ALRT' (129) {
+    {60, 60, 220, 380},
+    129,
+    {
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent
+    },
+    centerMainScreen
+};
+
+resource 'DITL' (129) {
+    {
+        {12, 16, 52, 304}, StaticText { disabled,
+            "Creating .book index file...\r"
+            "Please wait while page offsets are saved."
+        };
+        {64, 16, 84, 304}, StaticText { disabled, "Starting..." };
+    }
+};
+
 resource 'SIZE' (-1) {
 	reserved,
 	acceptSuspendResumeEvents,
