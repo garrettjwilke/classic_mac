@@ -4,6 +4,7 @@ project(${APP_NAME})
 add_application(${APP_NAME}
     ${APP_NAME}.c
     book_index.c
+    reader_state.c
     ${APP_NAME}.r
     )
 

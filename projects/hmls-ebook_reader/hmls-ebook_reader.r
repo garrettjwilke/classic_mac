@@ -40,8 +40,19 @@ resource 'MENU' (130) {
     }
 };
 
+resource 'MENU' (131) {
+    131, textMenuProc;
+    allEnabled, enabled;
+    "Bookmarks";
+    {
+        "Add Bookmark", noIcon, noKey, noMark, plain;
+        "Delete Bookmark", noIcon, noKey, noMark, plain;
+        "-", noIcon, noKey, noMark, plain;
+    }
+};
+
 resource 'MBAR' (128) {
-    { 128, 129, 130 };
+    { 128, 129, 130, 131 };
 };
 
 resource 'WIND' (128) {

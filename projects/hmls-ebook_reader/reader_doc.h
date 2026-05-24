@@ -14,7 +14,8 @@ typedef struct TERec** TEHandle;
 enum {
     kPageBufSize = 8192,
     kPageHistoryMax = 64,
-    kReadBufSize = 4096
+    kReadBufSize = 4096,
+    kMaxBookmarks = 32
 };
 
 typedef struct ReaderDoc {
@@ -64,6 +65,9 @@ typedef struct ReaderDoc {
     Boolean bookAwaitingDisplay;
     short bookSourceVRefNum;
     Str255 bookSourceName;
+    short savedLastPage;
+    short bookmarkPages[kMaxBookmarks];
+    short bookmarkCount;
     long readBufPos;
     short readBufCount;
     unsigned char readBuf[kReadBufSize];

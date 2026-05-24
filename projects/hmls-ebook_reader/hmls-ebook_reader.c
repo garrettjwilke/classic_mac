@@ -16,6 +16,7 @@
 
 #include "book_index.h"
 #include "reader_doc.h"
+#include "reader_state.h"
 
 enum {
     kMenuApple = 128,
@@ -833,6 +834,9 @@ static void GoToPageNumber(WindowRef w, short pageNum) {
     UpdatePageNavDisplay(doc);
     UpdatePageButtons(doc);
     InvalidateReader(w);
+    if (doc->hasFile) {
+        ReaderStateSave(doc);
+    }
 }
 
 static void TurnPage(WindowRef w, short direction) {
@@ -879,6 +883,9 @@ static void TurnPage(WindowRef w, short direction) {
     UpdatePageNavDisplay(doc);
     UpdatePageButtons(doc);
     InvalidateReader(w);
+    if (doc->hasFile) {
+        ReaderStateSave(doc);
+    }
 }
 
 static WindowRef NewReaderWindow(ConstStr255Param title) {
@@ -1101,6 +1108,9 @@ static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr
     }
 
     if (doc->fileRef > 0) {
+        if (doc->hasFile && doc->bookSourceName[0] > 0) {
+            ReaderStateSave(doc);
+        }
         FSClose(doc->fileRef);
     }
 
@@ -1115,6 +1125,8 @@ static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr
     doc->nextPageOffset = 0;
     doc->currentPage = 1;
     doc->totalPages = 0;
+    doc->savedLastPage = 1;
+    doc->bookmarkCount = 0;
     doc->bookIndexPending = false;
     InvalidateReadBuf(doc);
     BookIndexClose(doc);
@@ -1127,6 +1139,8 @@ static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr
         doc->bookIndexPending = true;
         doc->bookSourceVRefNum = reply->vRefNum;
         memcpy(doc->bookSourceName, reply->fName, reply->fName[0] + 1);
+        ReaderStateLoad(doc);
+        RebuildBookmarkMenu(doc);
         ForceRedrawWindow(w);
     } else if (doc->currentPage < 1) {
         doc->currentPage = 1;
@@ -1153,11 +1167,16 @@ void DoCloseWindow(WindowRef w) {
     if (w == gMainWindow) {
         ReaderDoc* doc = GetDoc(w);
         if (doc) {
+            if (doc->hasFile && doc->bookSourceName[0] > 0) {
+                ReaderStateSave(doc);
+            }
             BookIndexClose(doc);
             if (doc->fileRef > 0) {
                 FSClose(doc->fileRef);
                 doc->fileRef = 0;
             }
+            doc->bookmarkCount = 0;
+            RebuildBookmarkMenu(doc);
         }
         SetWelcomeText(gMainWindow);
         return;
@@ -1250,10 +1269,28 @@ void DoOpenFile(void) {
 void AdjustMenus(void) {
     WindowRef w = FrontWindow();
     MenuRef fileMenu = GetMenu(kMenuFile);
+    MenuRef bookmarkMenu = GetMenu(kMenuBookmarks);
+    ReaderDoc* doc = (w && GetWindowKind(w) >= 0) ? GetDoc(w) : NULL;
+    Boolean hasBook = doc && doc->hasFile && !BookIndexBlocksUI(doc);
+
     if (w) {
         EnableItem(fileMenu, kItemClose);
     } else {
         DisableItem(fileMenu, kItemClose);
+    }
+
+    if (bookmarkMenu) {
+        if (hasBook) {
+            EnableItem(bookmarkMenu, kItemAddBookmark);
+            if (ReaderStateHasBookmark(doc, doc->currentPage)) {
+                EnableItem(bookmarkMenu, kItemDeleteBookmark);
+            } else {
+                DisableItem(bookmarkMenu, kItemDeleteBookmark);
+            }
+        } else {
+            DisableItem(bookmarkMenu, kItemAddBookmark);
+            DisableItem(bookmarkMenu, kItemDeleteBookmark);
+        }
     }
 
     MenuRef editMenu = GetMenu(kMenuEdit);
@@ -1292,8 +1329,42 @@ void DoMenuCommand(long menuCommand) {
             case kItemClose:
                 DoCloseWindow(FrontWindow());
                 break;
-            case kItemQuit:
+            case kItemQuit: {
+                ReaderDoc* quitDoc = gMainWindow ? GetDoc(gMainWindow) : NULL;
+                if (quitDoc && quitDoc->hasFile && quitDoc->bookSourceName[0] > 0) {
+                    ReaderStateSave(quitDoc);
+                }
                 ExitToShell();
+                break;
+            }
+        }
+    } else if (menuID == kMenuBookmarks) {
+        WindowRef w = FrontWindow();
+        ReaderDoc* doc = (w && GetWindowKind(w) >= 0) ? GetDoc(w) : NULL;
+
+        if (!doc || !doc->hasFile) {
+            HiliteMenu(0);
+            return;
+        }
+
+        switch (menuItem) {
+            case kItemAddBookmark:
+                if (ReaderStateAddBookmark(doc, doc->currentPage) == memFullErr) {
+                    SysBeep(1);
+                }
+                break;
+            case kItemDeleteBookmark:
+                if (ReaderStateDeleteBookmark(doc, doc->currentPage) != noErr) {
+                    SysBeep(1);
+                }
+                break;
+            default:
+                if (menuItem >= kItemBookmarkFirst) {
+                    short index = (short)(menuItem - kItemBookmarkFirst);
+                    if (index >= 0 && index < doc->bookmarkCount) {
+                        GoToPageNumber(w, doc->bookmarkPages[index]);
+                    }
+                }
                 break;
         }
     } else if (menuID == kMenuEdit) {
@@ -1306,6 +1377,8 @@ void DoMenuCommand(long menuCommand) {
 }
 
 void ReaderOnIndexReady(WindowRef w, ReaderDoc* doc) {
+    short page;
+
     if (!doc || !w) {
         return;
     }
@@ -1315,14 +1388,17 @@ void ReaderOnIndexReady(WindowRef w, ReaderDoc* doc) {
         return;
     }
 
-    if (doc->currentPage < 1) {
-        doc->currentPage = 1;
+    page = doc->savedLastPage;
+    if (page < 1) {
+        page = 1;
     }
-    doc->pageOffset = 0;
-    BuildPageAtOffset(doc, 0);
-    UpdatePageNavDisplay(doc);
-    UpdatePageButtons(doc);
-    ForceRedrawWindow(w);
+    if (doc->bookPageCount > 0 && page > doc->bookPageCount) {
+        page = (short)doc->bookPageCount;
+    }
+
+    doc->currentPage = 0;
+    GoToPageNumber(w, page);
+    RebuildBookmarkMenu(doc);
 }
 
 static void ForceRedrawWindow(WindowRef w) {
