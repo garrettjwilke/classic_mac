@@ -62,6 +62,32 @@ static void DoContentClick(WindowRef w, Point localPt);
 static void DoKeyPage(WindowRef w, long keyMessage);
 static void ForceRedrawWindow(WindowRef w);
 
+#ifndef ioDirMask
+#define ioDirMask 0x10
+#endif
+
+/*
+ * Standard File filter: TRUE = hide, FALSE = show (Inside Macintosh).
+ */
+static pascal Boolean TxtOnlyFileFilter(CInfoPBPtr cpb) {
+    StringPtr namePtr;
+
+    if (cpb == NULL) {
+        return false;
+    }
+
+    if (cpb->dirInfo.ioFlAttrib & ioDirMask) {
+        return false;
+    }
+
+    namePtr = cpb->dirInfo.ioNamePtr;
+    if (namePtr == NULL) {
+        return true;
+    }
+
+    return !BookIndexNameIsText((ConstStr255Param)namePtr);
+}
+
 static void SetButtonTitle(ControlHandle c, const char* title) {
     Str255 ptitle;
     short len = (short)strlen(title);
@@ -816,8 +842,7 @@ static void SetWelcomeText(WindowRef w) {
     ReaderDoc* doc = GetDoc(w);
     static const char welcome[] =
         "hmls ebook reader\r\r"
-        "select Open from the File menu to read a .txt\r"
-        "or .book file.\r\r"
+        "select Open from the File menu to read a .txt file.\r\r"
         "Each screen is one page. Use Page Left and Page Right, "
         "left and right arrow keys, or enter a page number and "
         "Go To Page.\r\r"
@@ -1100,39 +1125,50 @@ void DoOpenFile(void) {
     long fileLen;
     OSErr err;
     Str255 textName;
-    Boolean isBook;
+    ReaderDoc* doc;
 
-    /* Show all files; .txt on transferred disks often lack type 'TEXT'. */
-    SFGetFile(where, "\p", NULL, -1, NULL, NULL, &reply);
+    SFGetFile(where, "\p", NewFileFilterUPP(TxtOnlyFileFilter), -1, NULL, NULL, &reply);
 
-    if (!reply.good || !gMainWindow) {
+    if (!gMainWindow) {
         return;
     }
 
-    if (!BookIndexResolveTextOpen(&reply, textName)) {
-        SysBeep(1);
-        return;
-    }
-
-    isBook = BookIndexSFReplyIsBook(&reply) || BookIndexNameIsBook(reply.fName);
-
-    if (isBook) {
-        err = OpenTextCandidates(&reply, textName, &refNum, &fileLen);
-    } else {
-        BookIndexCopyToSFName(textName, reply.fName);
-        err = OpenFromSFReply(&reply, &refNum, &fileLen);
-        if (err == noErr && FileRefLooksLikeBookIndex(refNum)) {
-            FSClose(refNum);
-            err = fnfErr;
+    doc = GetDoc(gMainWindow);
+    if (!reply.good) {
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
         }
+        return;
     }
 
+    if (!BookIndexNameIsText(reply.fName)) {
+        SysBeep(1);
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
+        }
+        return;
+    }
+
+    memcpy(textName, reply.fName, reply.fName[0] + 1);
+    BookIndexCopyToSFName(textName, reply.fName);
+
+    err = OpenFromSFReply(&reply, &refNum, &fileLen);
     if (err != noErr) {
         SysBeep(1);
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
+        }
         return;
     }
 
-    BookIndexCopyToSFName(textName, reply.fName);
+    if (FileRefLooksLikeBookIndex(refNum)) {
+        FSClose(refNum);
+        SysBeep(1);
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
+        }
+        return;
+    }
 
     SelectWindow(gMainWindow);
     AttachBookToWindow(gMainWindow, refNum, fileLen, textName, &reply);
@@ -1369,7 +1405,7 @@ int main(void) {
 
     gMainWindow = NewReaderWindow("\pebook reader");
     if (gMainWindow) {
-        SetWelcomeText(gMainWindow);
+        DoOpenFile();
     }
 
     for (;;) {
