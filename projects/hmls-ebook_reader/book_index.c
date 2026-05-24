@@ -17,7 +17,7 @@
 
 enum {
     kBookMagic = 0x424F4F4B, /* 'BOOK' */
-    kBookVersion = 1,
+    kBookVersion = 3,
     kBookHeaderSize = 24,
     kBookDialogID = 129,
     kBookProgressItem = 2,

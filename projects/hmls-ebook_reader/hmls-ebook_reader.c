@@ -229,11 +229,97 @@ static int ReadMemChar(ReaderDoc* doc, long* pos) {
     return ' ';
 }
 
+long ReaderContentLength(ReaderDoc* doc) {
+    if (doc->fileRef > 0) {
+        return doc->fileLen;
+    }
+    if (doc->memText) {
+        return doc->memLen;
+    }
+    return 0;
+}
+
+static void EnsureReaderFont(void) {
+    TextFont(3); /* Geneva */
+    TextSize(12);
+}
+
 static short LinePixelWidth(char* line, short len) {
     if (len <= 0) {
         return 0;
     }
+    EnsureReaderFont();
     return TextWidth(line, 0, len);
+}
+
+static void TrimTrailingSpaces(char* lineBuf, short* lineLen) {
+    while (*lineLen > 0 && lineBuf[*lineLen - 1] == ' ') {
+        (*lineLen)--;
+    }
+    lineBuf[*lineLen] = '\0';
+}
+
+static void RewindPos(ReaderDoc* doc, long* pos, short consumed, short keep) {
+    long rewindCount = (long)consumed - (long)keep;
+
+    if (rewindCount <= 0) {
+        return;
+    }
+    *pos -= rewindCount;
+    if (doc->fileRef > 0) {
+        SetFPos(doc->fileRef, fsFromStart, *pos);
+        InvalidateReadBuf(doc);
+    }
+}
+
+/*
+ * Read one display line: honor source line breaks (\r), then word-wrap at
+ * maxPixelWidth. Returns false at EOF.
+ */
+static Boolean ReaderReadOneLine(ReaderDoc* doc, long* pos, char* lineBuf, short* lineLen) {
+    int ch;
+    short len = 0;
+
+    lineBuf[0] = '\0';
+
+    while (len < kLineBufSize - 1) {
+        if (doc->fileRef > 0) {
+            ch = ReadSanitizedChar(doc, pos);
+        } else {
+            ch = ReadMemChar(doc, pos);
+        }
+        if (ch < 0) {
+            *lineLen = len;
+            return false;
+        }
+
+        if (ch == '\r') {
+            *lineLen = len;
+            return true;
+        }
+
+        lineBuf[len++] = (char)ch;
+        lineBuf[len] = '\0';
+
+        if (LinePixelWidth(lineBuf, len) > doc->maxPixelWidth) {
+            short breakAt = len - 1;
+
+            while (breakAt > 0 && lineBuf[breakAt - 1] != ' ') {
+                breakAt--;
+            }
+            if (breakAt == 0) {
+                breakAt = len - 1;
+            }
+
+            RewindPos(doc, pos, len, breakAt);
+            len = breakAt;
+            lineBuf[len] = '\0';
+            break;
+        }
+    }
+
+    *lineLen = len;
+    return true;
 }
 
 static void AppendLineToPage(ReaderDoc* doc, const char* line, short len) {
@@ -248,28 +334,28 @@ static void AppendLineToPage(ReaderDoc* doc, const char* line, short len) {
     doc->pageText[doc->pageTextLen] = '\0';
 }
 
-long ReaderContentLength(ReaderDoc* doc) {
-    if (doc->fileRef > 0) {
-        return doc->fileLen;
-    }
-    if (doc->memText) {
-        return doc->memLen;
-    }
-    return 0;
-}
-
-long ReaderAdvancePage(ReaderDoc* doc, long offset) {
+static long ReaderPaginateFrom(ReaderDoc* doc, long offset, Boolean storePage) {
     char lineBuf[kLineBufSize];
     short lineLen;
-    short line;
+    short filled;
     long pos;
-    int ch;
     Boolean atEOF;
     long contentLen;
 
     pos = offset;
     atEOF = false;
     contentLen = ReaderContentLength(doc);
+
+    EnsureReaderFont();
+
+    if (storePage) {
+        if (!doc->pageText) {
+            return offset;
+        }
+        doc->pageTextLen = 0;
+        doc->pageText[0] = '\0';
+        doc->pageOffset = offset;
+    }
 
     if (doc->fileRef > 0) {
         if (SetFPos(doc->fileRef, fsFromStart, offset) != noErr) {
@@ -278,51 +364,32 @@ long ReaderAdvancePage(ReaderDoc* doc, long offset) {
         InvalidateReadBuf(doc);
     }
 
-    for (line = 0; line < doc->linesPerPage; line++) {
-        lineLen = 0;
-        lineBuf[0] = '\0';
-
-        while (lineLen < kLineBufSize - 1) {
-            if (doc->fileRef > 0) {
-                ch = ReadSanitizedChar(doc, &pos);
-            } else {
-                ch = ReadMemChar(doc, &pos);
-            }
-            if (ch < 0) {
-                atEOF = true;
-                break;
-            }
-
-            lineBuf[lineLen++] = (char)ch;
-            lineBuf[lineLen] = '\0';
-
-            if (LinePixelWidth(lineBuf, lineLen) > doc->maxPixelWidth) {
-                short breakAt = lineLen - 1;
-
-                while (breakAt > 0 && lineBuf[breakAt - 1] != ' ') {
-                    breakAt--;
-                }
-                if (breakAt == 0) {
-                    breakAt = lineLen - 1;
-                }
-
-                if (doc->fileRef > 0) {
-                    long rewindCount = lineLen - breakAt;
-                    pos -= rewindCount;
-                    SetFPos(doc->fileRef, fsFromStart, pos);
-                    InvalidateReadBuf(doc);
-                } else {
-                    pos -= (lineLen - breakAt);
-                }
-
-                lineLen = breakAt;
-                lineBuf[lineLen] = '\0';
-                break;
-            }
+    for (filled = 0; filled < doc->linesPerPage;) {
+        if (!ReaderReadOneLine(doc, &pos, lineBuf, &lineLen)) {
+            atEOF = true;
+            break;
         }
 
-        if (atEOF) {
-            break;
+        TrimTrailingSpaces(lineBuf, &lineLen);
+        if (lineLen <= 0) {
+            /* Blank source lines must not consume a visible line slot. */
+            continue;
+        }
+
+        if (storePage) {
+            AppendLineToPage(doc, lineBuf, lineLen);
+        }
+        filled++;
+    }
+
+    if (storePage) {
+        doc->nextPageOffset = pos;
+        doc->canGoBack = doc->currentPage > 1;
+        doc->canGoForward = pos < contentLen;
+        if (!doc->canGoForward) {
+            if (doc->totalPages <= 0 || doc->currentPage > doc->totalPages) {
+                doc->totalPages = doc->currentPage;
+            }
         }
     }
 
@@ -330,6 +397,10 @@ long ReaderAdvancePage(ReaderDoc* doc, long offset) {
         return pos;
     }
     return contentLen;
+}
+
+long ReaderAdvancePage(ReaderDoc* doc, long offset) {
+    return ReaderPaginateFrom(doc, offset, false);
 }
 
 static void SetPageNumberField(ReaderDoc* doc, short page) {
@@ -410,95 +481,10 @@ static void UpdatePageNavDisplay(ReaderDoc* doc) {
 }
 
 static Boolean BuildPageAtOffset(ReaderDoc* doc, long offset) {
-    char lineBuf[kLineBufSize];
-    short lineLen;
-    short line;
-    long pos;
-    int ch;
-    Boolean atEOF;
-
     if (!doc->pageText) {
         return false;
     }
-
-    doc->pageTextLen = 0;
-    doc->pageText[0] = '\0';
-    doc->pageOffset = offset;
-    pos = offset;
-    atEOF = false;
-
-    if (doc->fileRef > 0) {
-        if (SetFPos(doc->fileRef, fsFromStart, offset) != noErr) {
-            return false;
-        }
-        InvalidateReadBuf(doc);
-    }
-
-    for (line = 0; line < doc->linesPerPage; line++) {
-        lineLen = 0;
-        lineBuf[0] = '\0';
-
-        while (lineLen < kLineBufSize - 1) {
-            if (doc->fileRef > 0) {
-                ch = ReadSanitizedChar(doc, &pos);
-            } else {
-                ch = ReadMemChar(doc, &pos);
-            }
-            if (ch < 0) {
-                atEOF = true;
-                break;
-            }
-
-            lineBuf[lineLen++] = (char)ch;
-            lineBuf[lineLen] = '\0';
-
-            if (LinePixelWidth(lineBuf, lineLen) > doc->maxPixelWidth) {
-                short breakAt = lineLen - 1;
-
-                while (breakAt > 0 && lineBuf[breakAt - 1] != ' ') {
-                    breakAt--;
-                }
-                if (breakAt == 0) {
-                    breakAt = lineLen - 1;
-                }
-
-                if (doc->fileRef > 0) {
-                    long rewindCount = lineLen - breakAt;
-                    pos -= rewindCount;
-                    SetFPos(doc->fileRef, fsFromStart, pos);
-                    InvalidateReadBuf(doc);
-                } else {
-                    pos -= (lineLen - breakAt);
-                }
-
-                lineLen = breakAt;
-                lineBuf[lineLen] = '\0';
-                break;
-            }
-        }
-
-        if (lineLen > 0) {
-            while (lineLen > 0 && lineBuf[lineLen - 1] == ' ') {
-                lineLen--;
-            }
-            if (lineLen > 0) {
-                AppendLineToPage(doc, lineBuf, lineLen);
-            }
-        }
-
-        if (atEOF) {
-            break;
-        }
-    }
-
-    doc->nextPageOffset = pos;
-    doc->canGoBack = doc->currentPage > 1;
-    doc->canGoForward = pos < ReaderContentLength(doc);
-    if (!doc->canGoForward) {
-        if (doc->totalPages <= 0 || doc->currentPage > doc->totalPages) {
-            doc->totalPages = doc->currentPage;
-        }
-    }
+    (void)ReaderPaginateFrom(doc, offset, true);
     return true;
 }
 
@@ -564,17 +550,15 @@ static void LayoutReaderWindow(WindowRef w) {
     TextBoxRect(w, &box);
     doc->textBox = box;
 
-    TextFont(3); /* Geneva */
-    TextSize(12);
+    EnsureReaderFont();
     GetFontInfo(&fontInfo);
     doc->lineHeight = fontInfo.ascent + fontInfo.descent + fontInfo.leading;
     if (doc->lineHeight < 10) {
         doc->lineHeight = 12;
     }
     {
-        /* Reserve one line so TETextBox does not clip the last descenders. */
-        short textHeight = box.bottom - box.top - (kTextInset * 2) - doc->lineHeight;
-        doc->linesPerPage = textHeight / doc->lineHeight;
+        short innerHeight = box.bottom - box.top - (kTextInset * 2);
+        doc->linesPerPage = innerHeight / doc->lineHeight;
         if (doc->linesPerPage < 4) {
             doc->linesPerPage = 4;
         }
@@ -939,7 +923,7 @@ static Boolean FileRefLooksLikeBookIndex(short refNum) {
         return false;
     }
 
-    return hdr[0] == 'B' && hdr[1] == 'O' && hdr[2] == 'O' && hdr[3] == 'K' && hdr[4] == 0 && hdr[5] == 1;
+    return hdr[0] == 'B' && hdr[1] == 'O' && hdr[2] == 'O' && hdr[3] == 'K' && hdr[4] == 0 && hdr[5] <= 3;
 }
 
 static void StripExtension(ConstStr255Param name, Str255 base) {
