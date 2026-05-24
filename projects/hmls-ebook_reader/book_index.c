@@ -40,6 +40,169 @@ typedef struct BookHeader {
     long pageCount;
 } BookHeader;
 
+static Boolean PascalSuffixMatches(ConstStr255Param name, const char* suffix) {
+    short nlen = name[0];
+    short slen = (short)strlen(suffix);
+    short i;
+
+    if (nlen < slen) {
+        return false;
+    }
+
+    for (i = 0; i < slen; i++) {
+        char c = name[1 + nlen - slen + i];
+        char s = suffix[i];
+
+        if (c >= 'A' && c <= 'Z') {
+            c = (char)(c + ('a' - 'A'));
+        }
+        if (s >= 'A' && s <= 'Z') {
+            s = (char)(s + ('a' - 'A'));
+        }
+        if (c != s) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Boolean BookIndexNameIsText(ConstStr255Param name) {
+    return PascalSuffixMatches(name, ".txt");
+}
+
+Boolean BookIndexNameIsBook(ConstStr255Param name) {
+    return PascalSuffixMatches(name, ".book");
+}
+
+Boolean BookIndexNameIsAllowed(ConstStr255Param name) {
+    return BookIndexNameIsText(name) || BookIndexNameIsBook(name);
+}
+
+void BookIndexAppendTxtExtension(ConstStr255Param baseName, Str255 txtName) {
+    short len = baseName[0];
+
+    if (len > 251) {
+        len = 251;
+    }
+    txtName[0] = (unsigned char)len;
+    memcpy(txtName + 1, baseName + 1, len);
+    if (!BookIndexNameIsText(txtName) && len + 4 <= 255) {
+        txtName[++len] = '.';
+        txtName[++len] = 't';
+        txtName[++len] = 'x';
+        txtName[++len] = 't';
+        txtName[0] = (unsigned char)len;
+    }
+}
+
+void BookIndexTextNameFromBook(ConstStr255Param bookName, Str255 txtName) {
+    short len = bookName[0];
+    short dot = 0;
+    short i;
+
+    if (len > 250) {
+        len = 250;
+    }
+    txtName[0] = (unsigned char)len;
+    memcpy(txtName + 1, bookName + 1, len);
+
+    for (i = 1; i <= len; i++) {
+        if (txtName[i] == '.') {
+            dot = i;
+        }
+    }
+
+    if (dot > 0 && dot + 3 <= len && txtName[dot + 1] == 'b' && txtName[dot + 2] == 'o'
+        && txtName[dot + 3] == 'k') {
+        txtName[dot + 1] = 't';
+        txtName[dot + 2] = 'x';
+        txtName[dot + 3] = 't';
+    } else {
+        BookIndexAppendTxtExtension(bookName, txtName);
+    }
+}
+
+Boolean BookIndexSFReplyIsBook(const SFReply* reply) {
+    if (!reply) {
+        return false;
+    }
+    if (reply->fType == (OSType)0x424F4F4B) { /* 'BOOK' */
+        return true;
+    }
+    return BookIndexNameIsBook(reply->fName);
+}
+
+static Boolean PascalNameHasExtension(ConstStr255Param name) {
+    short len = name[0];
+    short i;
+
+    for (i = len; i >= 1; i--) {
+        if (name[i] == '.') {
+            return true;
+        }
+    }
+    return false;
+}
+
+Boolean BookIndexResolveTextOpen(const SFReply* reply, Str255 textName) {
+    if (!reply || !reply->good) {
+        return false;
+    }
+
+    if (BookIndexSFReplyIsBook(reply)) {
+        BookIndexTextNameFromBook(reply->fName, textName);
+        return textName[0] > 0;
+    }
+
+    if (BookIndexNameIsBook(reply->fName)) {
+        BookIndexTextNameFromBook(reply->fName, textName);
+        return textName[0] > 0;
+    }
+
+    if (BookIndexNameIsText(reply->fName)) {
+        memcpy(textName, reply->fName, reply->fName[0] + 1);
+        return true;
+    }
+
+    /* Mac text files are often plain names (no .txt) with type TEXT or unknown. */
+    if (!PascalNameHasExtension(reply->fName)) {
+        memcpy(textName, reply->fName, reply->fName[0] + 1);
+        return textName[0] > 0;
+    }
+
+    return false;
+}
+
+void BookIndexCopyToSFName(ConstStr255Param src, Str63 dst) {
+    short len = src[0];
+
+    if (len > 63) {
+        len = 63;
+    }
+    dst[0] = (unsigned char)len;
+    memcpy(dst + 1, src + 1, len);
+}
+
+static void StripExtension(ConstStr255Param name, Str255 base) {
+    short len = name[0];
+    short dot = 0;
+    short i;
+
+    if (len > 250) {
+        len = 250;
+    }
+    for (i = 1; i <= len; i++) {
+        if (name[i] == '.') {
+            dot = i;
+        }
+    }
+    if (dot > 1) {
+        len = dot - 1;
+    }
+    base[0] = (unsigned char)len;
+    memcpy(base + 1, name + 1, len);
+}
+
 static void BookFileName(ConstStr255Param txtName, Str255 bookName) {
     short len = txtName[0];
     short dot = 0;

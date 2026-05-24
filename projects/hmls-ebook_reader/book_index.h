@@ -26,4 +26,21 @@ void BookIndexClose(ReaderDoc* doc);
 
 Boolean BookIndexIsOpen(ReaderDoc* doc);
 
+Boolean BookIndexNameIsText(ConstStr255Param name);
+
+Boolean BookIndexNameIsBook(ConstStr255Param name);
+
+Boolean BookIndexNameIsAllowed(ConstStr255Param name);
+
+void BookIndexTextNameFromBook(ConstStr255Param bookName, Str255 txtName);
+
+void BookIndexAppendTxtExtension(ConstStr255Param baseName, Str255 txtName);
+
+Boolean BookIndexSFReplyIsBook(const SFReply* reply);
+
+/* Fill textName with the text file to open for reading. */
+Boolean BookIndexResolveTextOpen(const SFReply* reply, Str255 textName);
+
+void BookIndexCopyToSFName(ConstStr255Param src, Str63 dst);
+
 #endif

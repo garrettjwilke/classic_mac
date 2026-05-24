@@ -19,7 +19,7 @@ resource 'MENU' (129) {
     allEnabled, enabled;
     "File";
     {
-        "Open...", noIcon, "O", noMark, plain;
+        "Open Book...", noIcon, "O", noMark, plain;
         "Close", noIcon, "W", noMark, plain;
         "-", noIcon, noKey, noMark, plain;
         "Quit", noIcon, "Q", noMark, plain;

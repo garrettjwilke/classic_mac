@@ -38,6 +38,7 @@ enum {
     kGrowBoxSize = 15,
     kContentMargin = 8,
     kNavBarHeight = 40,
+    kTextBoxExtraHeight = 2,
     kButtonWidth = 80,
     kButtonHeight = 20,
     kPageEditWidth = 48,
@@ -504,7 +505,7 @@ static void UpdatePageButtons(ReaderDoc* doc) {
 static void TextBoxRect(WindowRef w, Rect* box) {
     *box = w->portRect;
     InsetRect(box, kContentMargin, kContentMargin);
-    box->bottom -= kNavBarHeight;
+    box->bottom -= kNavBarHeight - kTextBoxExtraHeight;
 }
 
 static void FillScreenWindow(WindowRef w) {
@@ -815,7 +816,8 @@ static void SetWelcomeText(WindowRef w) {
     ReaderDoc* doc = GetDoc(w);
     static const char welcome[] =
         "hmls ebook reader\r\r"
-        "select Open from the File menu to read a book file.\r\r"
+        "select Open from the File menu to read a .txt\r"
+        "or .book file.\r\r"
         "Each screen is one page. Use Page Left and Page Right, "
         "left and right arrow keys, or enter a page number and "
         "Go To Page.\r\r"
@@ -880,6 +882,113 @@ static OSErr OpenFromSFReply(const SFReply* reply, short* refNum, long* fileLen)
     }
 
     return err;
+}
+
+static Boolean FileRefLooksLikeBookIndex(short refNum) {
+    unsigned char hdr[8];
+    long count = 8;
+    long eof;
+    OSErr err;
+
+    if (refNum <= 0) {
+        return false;
+    }
+
+    if (GetEOF(refNum, &eof) != noErr) {
+        return false;
+    }
+    /* Real books are much larger than an index file. */
+    if (eof > 65536) {
+        return false;
+    }
+
+    err = SetFPos(refNum, fsFromStart, 0);
+    if (err != noErr) {
+        return false;
+    }
+
+    err = FSRead(refNum, &count, (Ptr)hdr);
+    SetFPos(refNum, fsFromStart, 0);
+
+    if (err != noErr || count < 8) {
+        return false;
+    }
+
+    return hdr[0] == 'B' && hdr[1] == 'O' && hdr[2] == 'O' && hdr[3] == 'K' && hdr[4] == 0 && hdr[5] == 1;
+}
+
+static void StripExtension(ConstStr255Param name, Str255 base) {
+    short len = name[0];
+    short dot = 0;
+    short i;
+
+    if (len > 250) {
+        len = 250;
+    }
+    for (i = 1; i <= len; i++) {
+        if (name[i] == '.') {
+            dot = i;
+        }
+    }
+    if (dot > 1) {
+        len = dot - 1;
+    }
+    base[0] = (unsigned char)len;
+    memcpy(base + 1, name + 1, len);
+}
+
+#ifndef fnfErr
+#define fnfErr (-43)
+#endif
+
+static OSErr OpenTextCandidates(const SFReply* bookReply, Str255 chosenName, short* refNum, long* fileLen) {
+    Str255 names[4];
+    short nameCount = 0;
+    short i;
+    SFReply tryReply;
+    OSErr err;
+
+    BookIndexTextNameFromBook(bookReply->fName, names[nameCount]);
+    nameCount++;
+
+    BookIndexAppendTxtExtension(bookReply->fName, names[nameCount]);
+    nameCount++;
+
+    StripExtension(bookReply->fName, names[nameCount]);
+    nameCount++;
+
+    if (BookIndexNameIsText(bookReply->fName)) {
+        memcpy(names[nameCount], bookReply->fName, bookReply->fName[0] + 1);
+        nameCount++;
+    }
+
+    for (i = 0; i < nameCount; i++) {
+        short j;
+
+        for (j = 0; j < i; j++) {
+            if (names[i][0] == names[j][0] && memcmp(names[i] + 1, names[j] + 1, names[i][0]) == 0) {
+                break;
+            }
+        }
+        if (j < i) {
+            continue;
+        }
+
+        tryReply = *bookReply;
+        BookIndexCopyToSFName(names[i], tryReply.fName);
+
+        err = OpenFromSFReply(&tryReply, refNum, fileLen);
+        if (err == noErr && !FileRefLooksLikeBookIndex(*refNum)) {
+            memcpy(chosenName, names[i], names[i][0] + 1);
+            return noErr;
+        }
+        if (*refNum > 0) {
+            FSClose(*refNum);
+            *refNum = 0;
+        }
+    }
+
+    return fnfErr;
 }
 
 static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr255Param title,
@@ -990,21 +1099,43 @@ void DoOpenFile(void) {
     short refNum;
     long fileLen;
     OSErr err;
+    Str255 textName;
+    Boolean isBook;
 
+    /* Show all files; .txt on transferred disks often lack type 'TEXT'. */
     SFGetFile(where, "\p", NULL, -1, NULL, NULL, &reply);
 
     if (!reply.good || !gMainWindow) {
         return;
     }
 
-    err = OpenFromSFReply(&reply, &refNum, &fileLen);
+    if (!BookIndexResolveTextOpen(&reply, textName)) {
+        SysBeep(1);
+        return;
+    }
+
+    isBook = BookIndexSFReplyIsBook(&reply) || BookIndexNameIsBook(reply.fName);
+
+    if (isBook) {
+        err = OpenTextCandidates(&reply, textName, &refNum, &fileLen);
+    } else {
+        BookIndexCopyToSFName(textName, reply.fName);
+        err = OpenFromSFReply(&reply, &refNum, &fileLen);
+        if (err == noErr && FileRefLooksLikeBookIndex(refNum)) {
+            FSClose(refNum);
+            err = fnfErr;
+        }
+    }
+
     if (err != noErr) {
         SysBeep(1);
         return;
     }
 
+    BookIndexCopyToSFName(textName, reply.fName);
+
     SelectWindow(gMainWindow);
-    AttachBookToWindow(gMainWindow, refNum, fileLen, reply.fName, &reply);
+    AttachBookToWindow(gMainWindow, refNum, fileLen, textName, &reply);
 }
 
 void AdjustMenus(void) {
