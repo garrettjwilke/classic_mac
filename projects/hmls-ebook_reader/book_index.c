@@ -772,6 +772,59 @@ OSErr BookIndexPageOffset(ReaderDoc* doc, short pageNum, long* outOffset) {
     return noErr;
 }
 
+static OSErr DeleteSidecarFile(ConstStr255Param name, short vRefNum) {
+    OSErr err;
+    WDPBRec wd;
+
+    err = FSDelete(name, vRefNum);
+    if (err == noErr || err == fnfErr) {
+        return noErr;
+    }
+
+    memset(&wd, 0, sizeof(wd));
+    wd.ioNamePtr = NULL;
+    wd.ioWDIndex = 0;
+    wd.ioVRefNum = vRefNum;
+    if (PBGetWDInfoSync(&wd) == noErr) {
+        err = HDelete(wd.ioWDVRefNum, wd.ioWDDirID, name);
+        if (err == noErr || err == fnfErr) {
+            return noErr;
+        }
+        err = HDelete(vRefNum, wd.ioWDDirID, name);
+        if (err == noErr || err == fnfErr) {
+            return noErr;
+        }
+    }
+
+    return err;
+}
+
+OSErr BookIndexRegenerate(WindowRef w, ReaderDoc* doc) {
+    Str255 bookName;
+    OSErr err;
+
+    if (!doc || !w || !doc->hasFile || doc->fileRef <= 0) {
+        return paramErr;
+    }
+    if (BookIndexIsBuilding(doc)) {
+        return paramErr;
+    }
+
+    BookIndexClose(doc);
+    doc->totalPages = 0;
+
+    BookFileName(doc->bookSourceName, bookName);
+    (void)DeleteSidecarFile(bookName, doc->bookSourceVRefNum);
+
+    doc->bookAwaitingDisplay = true;
+    err = StartBookBuild(w, doc, bookName, doc->bookSourceVRefNum, doc->fileLen, 0);
+    if (err != noErr) {
+        doc->bookAwaitingDisplay = false;
+        ReaderOnIndexReady(w, doc);
+    }
+    return err;
+}
+
 OSErr BookIndexPrepare(WindowRef w, ReaderDoc* doc, const SFReply* reply) {
     Str255 bookName;
     long sourceLen;

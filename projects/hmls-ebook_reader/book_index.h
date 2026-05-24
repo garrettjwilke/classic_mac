@@ -43,4 +43,7 @@ Boolean BookIndexResolveTextOpen(const SFReply* reply, Str255 textName);
 
 void BookIndexCopyToSFName(ConstStr255Param src, Str63 dst);
 
+/* Delete the .book sidecar and rebuild the index for the open book. */
+OSErr BookIndexRegenerate(WindowRef w, ReaderDoc* doc);
+
 #endif

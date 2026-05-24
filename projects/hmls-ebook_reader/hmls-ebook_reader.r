@@ -51,8 +51,18 @@ resource 'MENU' (131) {
     }
 };
 
+resource 'MENU' (132) {
+    132, textMenuProc;
+    allEnabled, enabled;
+    "Options";
+    {
+        "Regenerate .book Index", noIcon, noKey, noMark, plain;
+        "Delete Bookmarks and Reading Progress", noIcon, noKey, noMark, plain;
+    }
+};
+
 resource 'MBAR' (128) {
-    { 128, 129, 130, 131 };
+    { 128, 129, 130, 131, 132 };
 };
 
 resource 'WIND' (128) {
@@ -103,6 +113,52 @@ resource 'DITL' (129) {
             "dialog closes."
         };
         {88, 16, 108, 334}, StaticText { disabled, "Starting..." };
+    }
+};
+
+resource 'ALRT' (130) {
+    {70, 60, 210, 380},
+    130,
+    {
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent
+    },
+    centerMainScreen
+};
+
+resource 'DITL' (130) {
+    {
+        {100, 220, 120, 280}, Button { enabled, "Yes" };
+        {100, 140, 120, 200}, Button { enabled, "No" };
+        {15, 20, 90, 300}, StaticText { disabled,
+            "Regenerate the .book index file for this book?\r\r"
+            "The existing index will be deleted and rebuilt."
+        };
+    }
+};
+
+resource 'ALRT' (131) {
+    {70, 60, 210, 380},
+    131,
+    {
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent
+    },
+    centerMainScreen
+};
+
+resource 'DITL' (131) {
+    {
+        {100, 220, 120, 280}, Button { enabled, "Yes" };
+        {100, 140, 120, 200}, Button { enabled, "No" };
+        {15, 20, 90, 300}, StaticText { disabled,
+            "Delete bookmarks and reading progress?\r\r"
+            "The .read file for this book will be removed."
+        };
     }
 };
 

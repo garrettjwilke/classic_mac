@@ -21,7 +21,19 @@
 enum {
     kMenuApple = 128,
     kMenuFile = 129,
-    kMenuEdit = 130
+    kMenuEdit = 130,
+    kMenuOptions = 132
+};
+
+enum {
+    kItemRegenerateBook = 1,
+    kItemDeleteReadFile = 2
+};
+
+enum {
+    kConfirmRegenerateAlert = 130,
+    kConfirmDeleteReadAlert = 131,
+    kAlertButtonYes = 1
 };
 
 enum {
@@ -64,6 +76,7 @@ static void DoContentClick(WindowRef w, Point localPt);
 static void DoKeyPage(WindowRef w, long keyMessage);
 static void ForceRedrawWindow(WindowRef w);
 static void AppendDecimal(char* buf, short* len, short maxLen, short value);
+static Boolean ConfirmYesNoAlert(short alertID);
 
 #ifndef ioDirMask
 #define ioDirMask 0x10
@@ -1333,10 +1346,15 @@ void DoOpenFile(void) {
     AttachBookToWindow(gMainWindow, refNum, fileLen, textName, &reply);
 }
 
+static Boolean ConfirmYesNoAlert(short alertID) {
+    return Alert(alertID, NULL) == kAlertButtonYes;
+}
+
 void AdjustMenus(void) {
     WindowRef w = FrontWindow();
     MenuRef fileMenu = GetMenu(kMenuFile);
     MenuRef bookmarkMenu = GetMenu(kMenuBookmarks);
+    MenuRef optionsMenu = GetMenu(kMenuOptions);
     ReaderDoc* doc = (w && GetWindowKind(w) >= 0) ? GetDoc(w) : NULL;
     Boolean hasBook = doc && doc->hasFile && !BookIndexBlocksUI(doc);
 
@@ -1357,6 +1375,16 @@ void AdjustMenus(void) {
         } else {
             DisableItem(bookmarkMenu, kItemAddBookmark);
             DisableItem(bookmarkMenu, kItemDeleteBookmark);
+        }
+    }
+
+    if (optionsMenu) {
+        if (hasBook) {
+            EnableItem(optionsMenu, kItemRegenerateBook);
+            EnableItem(optionsMenu, kItemDeleteReadFile);
+        } else {
+            DisableItem(optionsMenu, kItemRegenerateBook);
+            DisableItem(optionsMenu, kItemDeleteReadFile);
         }
     }
 
@@ -1430,6 +1458,34 @@ void DoMenuCommand(long menuCommand) {
                     short index = (short)(menuItem - kItemBookmarkFirst);
                     if (index >= 0 && index < doc->bookmarkCount) {
                         GoToPageNumber(w, doc->bookmarkPages[index]);
+                    }
+                }
+                break;
+        }
+    } else if (menuID == kMenuOptions) {
+        WindowRef w = FrontWindow();
+        ReaderDoc* doc = (w && GetWindowKind(w) >= 0) ? GetDoc(w) : NULL;
+
+        if (!doc || !doc->hasFile) {
+            HiliteMenu(0);
+            return;
+        }
+
+        switch (menuItem) {
+            case kItemRegenerateBook:
+                if (ConfirmYesNoAlert(kConfirmRegenerateAlert)
+                    && BookIndexRegenerate(w, doc) != noErr) {
+                    SysBeep(1);
+                }
+                break;
+            case kItemDeleteReadFile:
+                if (ConfirmYesNoAlert(kConfirmDeleteReadAlert)) {
+                    if (ReaderStateDeleteFile(doc) == noErr) {
+                        doc->pageHistoryCount = 0;
+                        doc->currentPage = 0;
+                        GoToPageNumber(w, 1);
+                    } else {
+                        SysBeep(1);
                     }
                 }
                 break;

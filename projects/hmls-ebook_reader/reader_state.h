@@ -21,4 +21,7 @@ OSErr ReaderStateDeleteBookmark(ReaderDoc* doc, short page);
 
 void RebuildBookmarkMenu(const ReaderDoc* doc);
 
+/* Delete the .read sidecar and clear bookmarks and saved page in memory. */
+OSErr ReaderStateDeleteFile(ReaderDoc* doc);
+
 #endif

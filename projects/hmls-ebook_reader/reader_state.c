@@ -282,6 +282,53 @@ OSErr ReaderStateDeleteBookmark(ReaderDoc* doc, short page) {
     return fnfErr;
 }
 
+static OSErr DeleteSidecarFile(ConstStr255Param name, short vRefNum) {
+    OSErr err;
+    WDPBRec wd;
+
+    err = FSDelete(name, vRefNum);
+    if (err == noErr || err == fnfErr) {
+        return noErr;
+    }
+
+    memset(&wd, 0, sizeof(wd));
+    wd.ioNamePtr = NULL;
+    wd.ioWDIndex = 0;
+    wd.ioVRefNum = vRefNum;
+    if (PBGetWDInfoSync(&wd) == noErr) {
+        err = HDelete(wd.ioWDVRefNum, wd.ioWDDirID, name);
+        if (err == noErr || err == fnfErr) {
+            return noErr;
+        }
+        err = HDelete(vRefNum, wd.ioWDDirID, name);
+        if (err == noErr || err == fnfErr) {
+            return noErr;
+        }
+    }
+
+    return err;
+}
+
+OSErr ReaderStateDeleteFile(ReaderDoc* doc) {
+    Str255 stateName;
+    OSErr err;
+
+    if (!doc || !doc->hasFile || doc->bookSourceName[0] == 0) {
+        return paramErr;
+    }
+
+    StateFileName(doc->bookSourceName, stateName);
+    err = DeleteSidecarFile(stateName, doc->bookSourceVRefNum);
+    if (err != noErr) {
+        return err;
+    }
+
+    doc->savedLastPage = 1;
+    doc->bookmarkCount = 0;
+    RebuildBookmarkMenu(doc);
+    return noErr;
+}
+
 void RebuildBookmarkMenu(const ReaderDoc* doc) {
     MenuRef menu = GetMenu(kMenuBookmarks);
     short count;
