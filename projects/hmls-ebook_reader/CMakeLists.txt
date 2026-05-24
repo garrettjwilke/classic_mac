@@ -6,6 +6,7 @@ add_application(${APP_NAME}
     book_index.c
     reader_state.c
     tools/geneva12.c
+    tools/paginate.c
     ${APP_NAME}.r
     )
 

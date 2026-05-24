@@ -18,6 +18,7 @@
 #include "reader_doc.h"
 #include "reader_state.h"
 #include "geneva12.h"
+#include "book_format.h"
 
 enum {
     kMenuApple = 128,
@@ -62,10 +63,6 @@ enum {
     kNavItemGap = 10,
     kTextInset = 6,
     kLineBufSize = 256,
-    /*
-     * Must match kLineWrapMargin in tools/book_format.h (mkbook pagination).
-     */
-    kLineWrapMargin = 8,
     kMinWindowWidth = 240,
     kMinWindowHeight = 180
 };

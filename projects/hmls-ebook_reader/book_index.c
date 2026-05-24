@@ -1,9 +1,13 @@
 #include "book_index.h"
 #include "reader_doc.h"
 
+#include "book_format.h"
+#include "paginate.h"
+
 #include <Dialogs.h>
 #include <Events.h>
 #include <Files.h>
+#include <Memory.h>
 #include <OSUtils.h>
 #include <Quickdraw.h>
 #include <TextUtils.h>
@@ -16,30 +20,23 @@
 #endif
 
 enum {
-    kBookMagic = 0x424F4F4B, /* 'BOOK' */
-    kBookVersion = 3,
-    kBookHeaderSize = 24,
     kBookDialogID = 129,
     kBookProgressItem = 2,
-    kPagesPerIdle = 24,
-    kBuildUIRedrawInterval = 20,
+    kPagesPerIdle = 128,
+    kBuildIdleBursts = 8,
+    kBuildUIRedrawInterval = 48,
     kBookDlgStorageSize = 1600
 };
+
+static Handle sBuildSource;
+static PaginateCtx sBuildPaginate;
+static Boolean sBuildUseMemory;
+static long sBuildOffsetBatch[64];
+static short sBuildOffsetBatchLen;
 
 extern void ReaderOnIndexReady(WindowRef w, ReaderDoc* doc);
 
 static char sBookDlgStorage[kBookDlgStorageSize];
-
-typedef struct BookHeader {
-    long magic;
-    short version;
-    short linesPerPage;
-    short lineHeight;
-    short maxPixelWidth;
-    long sourceLen;
-    long sourceModDate;
-    long pageCount;
-} BookHeader;
 
 static Boolean PascalSuffixMatches(ConstStr255Param name, const char* suffix) {
     short nlen = name[0];
@@ -451,6 +448,86 @@ static OSErr TryOpenExistingIndex(ReaderDoc* doc, ConstStr255Param bookName, sho
     return paramErr;
 }
 
+static void ReleaseBuildSource(void) {
+    if (sBuildSource) {
+        HUnlock(sBuildSource);
+        DisposeHandle(sBuildSource);
+        sBuildSource = NULL;
+    }
+    sBuildUseMemory = false;
+    sBuildOffsetBatchLen = 0;
+    memset(&sBuildPaginate, 0, sizeof(sBuildPaginate));
+}
+
+static OSErr FlushBuildOffsets(ReaderDoc* doc) {
+    long writeCount;
+    OSErr err;
+
+    if (sBuildOffsetBatchLen <= 0) {
+        return noErr;
+    }
+    writeCount = (long)sBuildOffsetBatchLen * 4L;
+    err = FSWrite(doc->bookWriteRef, &writeCount, (Ptr)sBuildOffsetBatch);
+    sBuildOffsetBatchLen = 0;
+    return err;
+}
+
+static OSErr QueueBuildOffset(ReaderDoc* doc, long offset) {
+    sBuildOffsetBatch[sBuildOffsetBatchLen++] = offset;
+    if (sBuildOffsetBatchLen >= (short)(sizeof(sBuildOffsetBatch) / sizeof(sBuildOffsetBatch[0]))) {
+        return FlushBuildOffsets(doc);
+    }
+    return noErr;
+}
+
+static OSErr PrepareBuildSource(ReaderDoc* doc) {
+    Handle source;
+    long count;
+    OSErr err;
+    BookLayout layout;
+
+    ReleaseBuildSource();
+    if (doc->fileRef <= 0 || doc->bookBuildSourceLen <= 0) {
+        return paramErr;
+    }
+
+    source = NewHandle(doc->bookBuildSourceLen);
+    if (!source) {
+        return memFullErr;
+    }
+
+    err = SetFPos(doc->fileRef, fsFromStart, 0);
+    if (err != noErr) {
+        DisposeHandle(source);
+        return err;
+    }
+
+    HLock(source);
+    count = doc->bookBuildSourceLen;
+    err = FSRead(doc->fileRef, &count, *source);
+    if (err != noErr || count != doc->bookBuildSourceLen) {
+        HUnlock(source);
+        DisposeHandle(source);
+        return err != noErr ? err : eofErr;
+    }
+
+    layout.linesPerPage = doc->linesPerPage;
+    layout.lineHeight = doc->lineHeight;
+    layout.maxPixelWidth = doc->maxPixelWidth;
+    paginate_init(&sBuildPaginate, (const unsigned char*)*source, doc->bookBuildSourceLen, &layout);
+
+    sBuildSource = source;
+    sBuildUseMemory = true;
+    return noErr;
+}
+
+static long AdvanceBuildPage(ReaderDoc* doc, long offset) {
+    if (sBuildUseMemory && sBuildSource) {
+        return paginate_advance_page(&sBuildPaginate, offset);
+    }
+    return ReaderAdvancePage(doc, offset);
+}
+
 static void YieldDuringBuild(ReaderDoc* doc) {
     EventRecord e;
     DialogPtr dlg = doc->bookBuildDlg;
@@ -641,6 +718,7 @@ static OSErr StartBookBuild(WindowRef w, ReaderDoc* doc, ConstStr255Param bookNa
     GetWTitle(w, doc->bookSavedTitle);
     BeginBuildDialog(doc);
     SetBuildProgress(w, doc, 0);
+    sBuildOffsetBatchLen = 0;
 
     err = CreateEmptyBook(bookName, vRefNum, &doc->bookWriteRef);
     if (err != noErr) {
@@ -673,6 +751,20 @@ static OSErr StartBookBuild(WindowRef w, ReaderDoc* doc, ConstStr255Param bookNa
     doc->bookBuildPage = 0;
     doc->bookBuildSourceLen = sourceLen;
     doc->bookBuildModDate = modDate;
+
+    err = PrepareBuildSource(doc);
+    if (err == memFullErr) {
+        /* Low memory: fall back to streaming pagination (slower, same offsets). */
+        ReleaseBuildSource();
+        err = noErr;
+    } else if (err != noErr) {
+        ReleaseBuildSource();
+        FSClose(doc->bookWriteRef);
+        doc->bookWriteRef = 0;
+        doc->bookBuilding = false;
+        EndBuildDialog(w, doc);
+        return err;
+    }
     return noErr;
 }
 
@@ -680,6 +772,16 @@ static OSErr FinishBookBuild(WindowRef w, ReaderDoc* doc) {
     BookHeader hdr;
     OSErr err;
     short readRef;
+
+    err = FlushBuildOffsets(doc);
+    if (err != noErr) {
+        ReleaseBuildSource();
+        FSClose(doc->bookWriteRef);
+        doc->bookWriteRef = 0;
+        doc->bookBuilding = false;
+        EndBuildDialog(w, doc);
+        return err;
+    }
 
     memset(&hdr, 0, sizeof(hdr));
     hdr.magic = kBookMagic;
@@ -692,6 +794,7 @@ static OSErr FinishBookBuild(WindowRef w, ReaderDoc* doc) {
     hdr.pageCount = doc->bookBuildPage;
 
     err = WriteHeader(doc->bookWriteRef, &hdr);
+    ReleaseBuildSource();
     FSClose(doc->bookWriteRef);
     doc->bookWriteRef = 0;
     doc->bookBuilding = false;
@@ -718,7 +821,6 @@ static OSErr FinishBookBuild(WindowRef w, ReaderDoc* doc) {
 
 static OSErr BuildStep(WindowRef w, ReaderDoc* doc) {
     long contentLen;
-    long writeCount;
     OSErr err;
     short batch;
 
@@ -729,28 +831,33 @@ static OSErr BuildStep(WindowRef w, ReaderDoc* doc) {
     contentLen = ReaderContentLength(doc);
     err = noErr;
 
-    for (batch = 0; batch < kPagesPerIdle; batch++) {
+    for (batch = 0; batch < (sBuildUseMemory ? kPagesPerIdle : 24); batch++) {
         long next;
 
-        writeCount = 4;
-        err = FSWrite(doc->bookWriteRef, &writeCount, (Ptr)&doc->bookBuildPos);
+        err = QueueBuildOffset(doc, doc->bookBuildPos);
         if (err != noErr) {
             break;
         }
 
         doc->bookBuildPage++;
-        SetBuildProgress(w, doc, doc->bookBuildPage);
+        if (doc->bookBuildPage == 1
+            || (doc->bookBuildPage % kBuildUIRedrawInterval) == 0) {
+            SetBuildProgress(w, doc, doc->bookBuildPage);
+        }
 
         if (doc->bookBuildPos >= contentLen) {
+            SetBuildProgress(w, doc, doc->bookBuildPage);
             return FinishBookBuild(w, doc);
         }
 
-        next = ReaderAdvancePage(doc, doc->bookBuildPos);
+        next = AdvanceBuildPage(doc, doc->bookBuildPos);
         if (next <= doc->bookBuildPos) {
+            SetBuildProgress(w, doc, doc->bookBuildPage);
             return FinishBookBuild(w, doc);
         }
         doc->bookBuildPos = next;
         if (doc->bookBuildPos >= contentLen) {
+            SetBuildProgress(w, doc, doc->bookBuildPage);
             return FinishBookBuild(w, doc);
         }
     }
@@ -762,6 +869,7 @@ void BookIndexCancelBuild(ReaderDoc* doc) {
     if (!doc) {
         return;
     }
+    ReleaseBuildSource();
     if (doc->bookWriteRef > 0) {
         FSClose(doc->bookWriteRef);
         doc->bookWriteRef = 0;
@@ -916,7 +1024,7 @@ void BookIndexIdle(WindowRef w, ReaderDoc* doc) {
     }
 
     wasBuilding = doc->bookBuilding;
-    for (burst = 0; burst < 4 && doc->bookBuilding; burst++) {
+    for (burst = 0; burst < kBuildIdleBursts && doc->bookBuilding; burst++) {
         err = BuildStep(w, doc);
         if (err != noErr) {
             BookIndexCancelBuild(doc);
