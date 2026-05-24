@@ -796,7 +796,7 @@ static void BuildIndexStatusMessage(ReaderDoc* doc, char* buf, short bufSize) {
     buf[len] = '\0';
 }
 
-static void DrawReaderPage(WindowRef w) {
+static void DrawReaderText(WindowRef w) {
     ReaderDoc* doc = GetDoc(w);
     Rect inner;
     char statusMsg[128];
@@ -819,12 +819,31 @@ static void DrawReaderPage(WindowRef w) {
     } else if (doc->pageTextLen > 0) {
         TETextBox(doc->pageText, (long)doc->pageTextLen, &inner, teJustLeft);
     }
+}
+
+static void DrawReaderNav(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+
+    if (!doc) {
+        return;
+    }
 
     if (doc->pageNumTE) {
         FrameRect(&doc->pageNumEditRect);
         TEUpdate(&doc->pageNumEditRect, doc->pageNumTE);
     }
     DrawPageTotalLabel(doc);
+}
+
+static void DrawReaderPage(WindowRef w) {
+    DrawReaderText(w);
+    DrawReaderNav(w);
+}
+
+static void RedrawAfterPageChange(WindowRef w) {
+    SetPort(w);
+    DrawReaderText(w);
+    DrawReaderNav(w);
 }
 
 void ReaderOnBuildProgress(WindowRef w, ReaderDoc* doc) {
@@ -913,7 +932,7 @@ static void GoToPageNumber(WindowRef w, short pageNum) {
     BuildPageAtOffset(doc, offset);
     UpdatePageNavDisplay(doc);
     UpdatePageButtons(doc);
-    InvalidateReader(w);
+    RedrawAfterPageChange(w);
     if (doc->hasFile) {
         ReaderStateSave(doc);
     }
@@ -962,7 +981,7 @@ static void TurnPage(WindowRef w, short direction) {
 
     UpdatePageNavDisplay(doc);
     UpdatePageButtons(doc);
-    InvalidateReader(w);
+    RedrawAfterPageChange(w);
     if (doc->hasFile) {
         ReaderStateSave(doc);
     }
@@ -1553,7 +1572,7 @@ void DoUpdate(WindowRef w) {
 
     SetPort(w);
     BeginUpdate(w);
-    EraseRect(&w->portRect);
+    EraseRgn(((GrafPtr)w)->visRgn);
 
     doc = GetDoc(w);
     if (doc) {
