@@ -532,6 +532,10 @@ static void SetBuildProgress(WindowRef w, ReaderDoc* doc, short page) {
 
     YieldDuringBuild(doc);
 
+    if (w && (doc->bookBuilding || doc->bookAwaitingDisplay)) {
+        ReaderOnBuildProgress(w, doc);
+    }
+
     if (doc->bookTitleProgress && w) {
         Str255 title;
         short i;

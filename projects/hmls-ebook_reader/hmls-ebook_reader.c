@@ -648,10 +648,78 @@ static void LayoutReaderWindow(WindowRef w) {
     }
 }
 
+static void AppendDecimal(char* buf, short* len, short maxLen, short value) {
+    char digits[8];
+    short dlen = 0;
+    short n = value;
+    short i;
+
+    if (n <= 0) {
+        if (*len < maxLen) {
+            buf[(*len)++] = '0';
+        }
+        return;
+    }
+
+    while (n > 0 && dlen < 7) {
+        digits[dlen++] = (char)('0' + (n % 10));
+        n /= 10;
+    }
+    for (i = dlen - 1; i >= 0; i--) {
+        if (*len < maxLen) {
+            buf[(*len)++] = digits[i];
+        }
+    }
+}
+
+static void BuildIndexStatusMessage(ReaderDoc* doc, char* buf, short bufSize) {
+    short len = 0;
+    short maxLen = (short)(bufSize - 1);
+    const char* line1 = "Preparing book...";
+    const char* line2;
+    short line2Len;
+    short i;
+
+    for (i = 0; line1[i] != '\0' && len < maxLen; i++) {
+        buf[len++] = line1[i];
+    }
+    if (len + 2 <= maxLen) {
+        buf[len++] = '\r';
+        buf[len++] = '\r';
+    }
+
+    if (BookIndexIsBuilding(doc) && doc->bookBuildPage > 0) {
+        const char* prefix = "Indexing page ";
+        for (i = 0; prefix[i] != '\0' && len < maxLen; i++) {
+            buf[len++] = prefix[i];
+        }
+        AppendDecimal(buf, &len, maxLen, doc->bookBuildPage);
+        line2 = "...";
+        line2Len = 3;
+    } else {
+        line2 = "Starting index...";
+        line2Len = 16;
+    }
+
+    for (i = 0; i < line2Len && len < maxLen; i++) {
+        buf[len++] = line2[i];
+    }
+    if (len + 2 <= maxLen) {
+        buf[len++] = '\r';
+        buf[len++] = '\r';
+    }
+
+    line2 = "Please wait.";
+    for (i = 0; line2[i] != '\0' && len < maxLen; i++) {
+        buf[len++] = line2[i];
+    }
+    buf[len] = '\0';
+}
+
 static void DrawReaderPage(WindowRef w) {
     ReaderDoc* doc = GetDoc(w);
     Rect inner;
-    static const char waitMsg[] = "Preparing book...\r\rA .book index file is being\rcreated. Please wait for the\rdialog to close.";
+    char statusMsg[128];
 
     if (!doc || !doc->pageText) {
         return;
@@ -666,7 +734,8 @@ static void DrawReaderPage(WindowRef w) {
     TextSize(12);
 
     if (BookIndexBlocksUI(doc) && doc->hasFile) {
-        TETextBox((char*)waitMsg, (long)strlen(waitMsg), &inner, teJustLeft);
+        BuildIndexStatusMessage(doc, statusMsg, (short)sizeof(statusMsg));
+        TETextBox(statusMsg, (long)strlen(statusMsg), &inner, teJustLeft);
     } else if (doc->pageTextLen > 0) {
         TETextBox(doc->pageText, (long)doc->pageTextLen, &inner, teJustLeft);
     }
@@ -674,6 +743,26 @@ static void DrawReaderPage(WindowRef w) {
     if (doc->pageNumTE) {
         FrameRect(&doc->pageNumEditRect);
         TEUpdate(&doc->pageNumEditRect, doc->pageNumTE);
+    }
+}
+
+void ReaderOnBuildProgress(WindowRef w, ReaderDoc* doc) {
+    if (!w || !doc) {
+        return;
+    }
+    SetPort(w);
+    if (doc->bookBuildPage > 0) {
+        SetPageNumberField(doc, doc->bookBuildPage);
+    }
+    DrawReaderPage(w);
+    if (doc->btnPrev) {
+        Draw1Control(doc->btnPrev);
+    }
+    if (doc->btnNext) {
+        Draw1Control(doc->btnNext);
+    }
+    if (doc->btnGoTo) {
+        Draw1Control(doc->btnGoTo);
     }
 }
 
