@@ -35,6 +35,7 @@ typedef struct ReaderDoc {
     ControlHandle btnGoTo;
     TEHandle pageNumTE;
     Rect pageNumEditRect;
+    Rect pageTotalLabelRect;
     short currentPage;
     short totalPages;
     Rect textBox;

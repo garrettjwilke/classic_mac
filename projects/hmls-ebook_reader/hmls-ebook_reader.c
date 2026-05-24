@@ -44,6 +44,7 @@ enum {
     kButtonHeight = 20,
     kPageEditWidth = 48,
     kPageEditHeight = 20,
+    kPageTotalLabelWidth = 56,
     kGoButtonWidth = 72,
     kNavItemGap = 10,
     kTextInset = 6,
@@ -62,6 +63,7 @@ static void GoToPageNumber(WindowRef w, short pageNum);
 static void DoContentClick(WindowRef w, Point localPt);
 static void DoKeyPage(WindowRef w, long keyMessage);
 static void ForceRedrawWindow(WindowRef w);
+static void AppendDecimal(char* buf, short* len, short maxLen, short value);
 
 #ifndef ioDirMask
 #define ioDirMask 0x10
@@ -481,6 +483,63 @@ static void UpdatePageNavDisplay(ReaderDoc* doc) {
     SetPageNumberField(doc, doc->currentPage);
 }
 
+static short DisplayTotalPages(ReaderDoc* doc) {
+    if (BookIndexIsOpen(doc) && doc->bookPageCount > 0) {
+        return (short)doc->bookPageCount;
+    }
+    if (doc->totalPages > 0) {
+        return doc->totalPages;
+    }
+    if (!doc->hasFile) {
+        return 1;
+    }
+    return 0;
+}
+
+static short FormatPageTotalLabel(ReaderDoc* doc, char* buf, short bufSize) {
+    short len = 0;
+    short maxLen = (short)(bufSize - 1);
+    short total = DisplayTotalPages(doc);
+
+    if (len < maxLen) {
+        buf[len++] = ' ';
+    }
+    if (len < maxLen) {
+        buf[len++] = '/';
+    }
+    if (len < maxLen) {
+        buf[len++] = ' ';
+    }
+
+    if (total > 0) {
+        AppendDecimal(buf, &len, maxLen, total);
+    } else if (len < maxLen) {
+        buf[len++] = '?';
+    }
+
+    buf[len] = '\0';
+    return len;
+}
+
+static void DrawPageTotalLabel(ReaderDoc* doc) {
+    char label[16];
+    short len;
+
+    if (!doc) {
+        return;
+    }
+
+    len = FormatPageTotalLabel(doc, label, (short)sizeof(label));
+    if (len <= 0) {
+        return;
+    }
+
+    EraseRect(&doc->pageTotalLabelRect);
+    TextFont(3);
+    TextSize(12);
+    TETextBox(label, len, &doc->pageTotalLabelRect, teJustLeft);
+}
+
 static Boolean BuildPageAtOffset(ReaderDoc* doc, long offset) {
     if (!doc->pageText) {
         return false;
@@ -582,7 +641,7 @@ static void LayoutReaderWindow(WindowRef w) {
         short navTop = navBar.top + 10;
         short navBottom = navTop + kButtonHeight;
         short totalWidth = kButtonWidth + kNavItemGap + kPageEditWidth + kNavItemGap
-            + kGoButtonWidth + kNavItemGap + kButtonWidth;
+            + kPageTotalLabelWidth + kNavItemGap + kGoButtonWidth + kNavItemGap + kButtonWidth;
 
         navLeft = navBar.left + ((navBar.right - navBar.left) - totalWidth) / 2;
 
@@ -595,6 +654,13 @@ static void LayoutReaderWindow(WindowRef w) {
             navLeft + kPageEditWidth,
             navTop + kPageEditHeight);
         navLeft = doc->pageNumEditRect.right + kNavItemGap;
+
+        SetRect(&doc->pageTotalLabelRect,
+            navLeft,
+            navTop,
+            navLeft + kPageTotalLabelWidth,
+            navTop + kPageEditHeight);
+        navLeft = doc->pageTotalLabelRect.right + kNavItemGap;
 
         SetRect(&goRect, navLeft, navTop, navLeft + kGoButtonWidth, navBottom);
         navLeft = goRect.right + kNavItemGap;
@@ -745,6 +811,7 @@ static void DrawReaderPage(WindowRef w) {
         FrameRect(&doc->pageNumEditRect);
         TEUpdate(&doc->pageNumEditRect, doc->pageNumTE);
     }
+    DrawPageTotalLabel(doc);
 }
 
 void ReaderOnBuildProgress(WindowRef w, ReaderDoc* doc) {
