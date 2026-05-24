@@ -40,6 +40,7 @@ enum {
     kPageEditWidth = 48,
     kPageEditHeight = 20,
     kGoButtonWidth = 72,
+    kNavItemGap = 10,
     kTextInset = 6,
     kPageBufSize = 8192,
     kLineBufSize = 256,
@@ -84,7 +85,7 @@ static void DrawReaderPage(WindowRef w);
 static void TurnPage(WindowRef w, short direction);
 static void GoToPageNumber(WindowRef w, short pageNum);
 static void DoContentClick(WindowRef w, Point localPt);
-static void DoKeyPage(WindowRef w, char key);
+static void DoKeyPage(WindowRef w, long keyMessage);
 
 static void SetButtonTitle(ControlHandle c, const char* title) {
     Str255 ptitle;
@@ -562,33 +563,29 @@ static void LayoutReaderWindow(WindowRef w) {
     navBar.top = box.bottom + 4;
     navBar.bottom = w->portRect.bottom - kContentMargin;
 
-    navLeft = navBar.left + 4;
+    {
+        short navTop = navBar.top + 10;
+        short navBottom = navTop + kButtonHeight;
+        short totalWidth = kButtonWidth + kNavItemGap + kPageEditWidth + kNavItemGap
+            + kGoButtonWidth + kNavItemGap + kButtonWidth;
 
-    SetRect(&prevRect,
-        navLeft,
-        navBar.top + 10,
-        navLeft + kButtonWidth,
-        navBar.top + 10 + kButtonHeight);
-    navLeft = prevRect.right + 10;
+        navLeft = navBar.left + ((navBar.right - navBar.left) - totalWidth) / 2;
 
-    SetRect(&doc->pageNumEditRect,
-        navLeft,
-        navBar.top + 10,
-        navLeft + kPageEditWidth,
-        navBar.top + 10 + kPageEditHeight);
-    navLeft = doc->pageNumEditRect.right + 10;
+        SetRect(&prevRect, navLeft, navTop, navLeft + kButtonWidth, navBottom);
+        navLeft = prevRect.right + kNavItemGap;
 
-    SetRect(&goRect,
-        navLeft,
-        navBar.top + 10,
-        navLeft + kGoButtonWidth,
-        navBar.top + 10 + kButtonHeight);
+        SetRect(&doc->pageNumEditRect,
+            navLeft,
+            navTop,
+            navLeft + kPageEditWidth,
+            navTop + kPageEditHeight);
+        navLeft = doc->pageNumEditRect.right + kNavItemGap;
 
-    SetRect(&nextRect,
-        navBar.right - kButtonWidth,
-        navBar.top + 10,
-        navBar.right,
-        navBar.top + 10 + kButtonHeight);
+        SetRect(&goRect, navLeft, navTop, navLeft + kGoButtonWidth, navBottom);
+        navLeft = goRect.right + kNavItemGap;
+
+        SetRect(&nextRect, navLeft, navTop, navLeft + kButtonWidth, navBottom);
+    }
 
     if (doc->btnPrev) {
         MoveControl(doc->btnPrev, prevRect.left, prevRect.top);
@@ -799,7 +796,8 @@ static void SetWelcomeText(WindowRef w) {
         "hmls ebook reader\r\r"
         "select Open from the File menu to read a book file.\r\r"
         "Each screen is one page. Use Page Left and Page Right, "
-        "or enter a page number and Go To Page.\r\r"
+        "left and right arrow keys, or enter a page number and "
+        "Go To Page.\r\r"
         "Long chapters are read from disk in sections; there is "
         "no 32K limit.";
 
@@ -1093,19 +1091,28 @@ static void DoContentClick(WindowRef w, Point localPt) {
     }
 }
 
-static void DoKeyPage(WindowRef w, char key) {
-    switch (key) {
-        case 0x0B: /* Page Up */
-        case 0x1E: /* Left Arrow */
-            TurnPage(w, -1);
-            break;
-        case 0x0C: /* Page Down */
-        case 0x1F: /* Down Arrow */
-        case ' ':
-            TurnPage(w, 1);
-            break;
-        default:
-            break;
+static Boolean KeyIs(long keyMessage, unsigned char code) {
+    unsigned char lo = (unsigned char)(keyMessage & charCodeMask);
+    unsigned char hi = (unsigned char)((keyMessage >> 8) & 0xFF);
+    return lo == code || hi == code;
+}
+
+static void DoKeyPage(WindowRef w, long keyMessage) {
+    unsigned char lo = (unsigned char)(keyMessage & charCodeMask);
+    unsigned char hi = (unsigned char)((keyMessage >> 8) & 0xFF);
+
+    /* Page Up, Apple left (0x1B), or left arrow in char byte (0x1C). */
+    if (KeyIs(keyMessage, 0x0B) || KeyIs(keyMessage, 0x1B) || lo == 0x1C) {
+        TurnPage(w, -1);
+        return;
+    }
+    /* Page Down, right arrow in char byte (0x1D), or Apple right in hi byte. */
+    if (KeyIs(keyMessage, 0x0C) || lo == 0x1D || (hi == 0x1C && lo != 0x1C)) {
+        TurnPage(w, 1);
+        return;
+    }
+    if (lo == ' ') {
+        TurnPage(w, 1);
     }
 }
 
@@ -1181,7 +1188,7 @@ int main(void) {
                                 TEKey(key, doc->pageNumTE);
                             }
                         } else if (win && GetWindowKind(win) >= 0) {
-                            DoKeyPage(win, key);
+                            DoKeyPage(win, e.message);
                         }
                     }
                     break;
