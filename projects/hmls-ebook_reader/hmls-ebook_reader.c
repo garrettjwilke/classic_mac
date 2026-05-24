@@ -283,6 +283,42 @@ long ReaderContentLength(ReaderDoc* doc) {
     return 0;
 }
 
+void ReaderReleaseBookFiles(ReaderDoc* doc, Boolean saveState) {
+    if (!doc) {
+        return;
+    }
+
+    if (saveState && doc->hasFile && doc->bookSourceName[0] > 0) {
+        ReaderStateSave(doc);
+    }
+
+    BookIndexClose(doc);
+
+    if (doc->fileRef > 0) {
+        FSClose(doc->fileRef);
+        doc->fileRef = 0;
+    }
+
+    InvalidateReadBuf(doc);
+    doc->hasFile = false;
+    doc->fileLen = 0;
+    doc->memText = NULL;
+    doc->memLen = 0;
+    doc->bookSourceName[0] = 0;
+    doc->bookSourceVRefNum = 0;
+    doc->bookIndexPending = false;
+    doc->bookAwaitingDisplay = false;
+    doc->bookBuilding = false;
+    doc->totalPages = 0;
+    doc->bookPageCount = 0;
+    doc->pageHistoryCount = 0;
+    doc->pageOffset = 0;
+    doc->nextPageOffset = 0;
+    doc->currentPage = 1;
+    doc->savedLastPage = 1;
+    doc->bookmarkCount = 0;
+}
+
 static void EnsureReaderFont(void) {
     TextFont(3); /* Geneva */
     TextSize(12);
@@ -1097,7 +1133,6 @@ static void SetWelcomeText(WindowRef w) {
     doc->hasFile = false;
     doc->memText = welcome;
     doc->memLen = (long)strlen(welcome);
-    doc->fileRef = 0;
     doc->fileLen = doc->memLen;
     doc->pageHistoryCount = 0;
     doc->pageOffset = 0;
@@ -1192,12 +1227,7 @@ static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr
         return;
     }
 
-    if (doc->fileRef > 0) {
-        if (doc->hasFile && doc->bookSourceName[0] > 0) {
-            ReaderStateSave(doc);
-        }
-        FSClose(doc->fileRef);
-    }
+    ReaderReleaseBookFiles(doc, true);
 
     SetWTitle(w, title);
     doc->fileRef = refNum;
@@ -1214,7 +1244,6 @@ static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr
     doc->bookmarkCount = 0;
     doc->bookIndexPending = false;
     InvalidateReadBuf(doc);
-    BookIndexClose(doc);
 
     SetPort(w);
     LayoutReaderWindow(w);
@@ -1252,15 +1281,7 @@ void DoCloseWindow(WindowRef w) {
     if (w == gMainWindow) {
         ReaderDoc* doc = GetDoc(w);
         if (doc) {
-            if (doc->hasFile && doc->bookSourceName[0] > 0) {
-                ReaderStateSave(doc);
-            }
-            BookIndexClose(doc);
-            if (doc->fileRef > 0) {
-                FSClose(doc->fileRef);
-                doc->fileRef = 0;
-            }
-            doc->bookmarkCount = 0;
+            ReaderReleaseBookFiles(doc, true);
             RebuildBookmarkMenu(doc);
         }
         SetWelcomeText(gMainWindow);
@@ -1270,10 +1291,7 @@ void DoCloseWindow(WindowRef w) {
     {
         ReaderDoc* doc = GetDoc(w);
         if (doc) {
-            BookIndexClose(doc);
-            if (doc->fileRef > 0) {
-                FSClose(doc->fileRef);
-            }
+            ReaderReleaseBookFiles(doc, true);
             if (doc->pageText) {
                 DisposePtr((Ptr)doc->pageText);
             }
@@ -1431,8 +1449,8 @@ void DoMenuCommand(long menuCommand) {
                 break;
             case kItemQuit: {
                 ReaderDoc* quitDoc = gMainWindow ? GetDoc(gMainWindow) : NULL;
-                if (quitDoc && quitDoc->hasFile && quitDoc->bookSourceName[0] > 0) {
-                    ReaderStateSave(quitDoc);
+                if (quitDoc) {
+                    ReaderReleaseBookFiles(quitDoc, true);
                 }
                 ExitToShell();
                 break;

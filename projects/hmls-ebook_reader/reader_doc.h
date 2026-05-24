@@ -77,6 +77,9 @@ typedef struct ReaderDoc {
 long ReaderAdvancePage(ReaderDoc* doc, long offset);
 long ReaderContentLength(ReaderDoc* doc);
 
+/* Close .book, .pgdata, and any in-progress index build for this document. */
+void ReaderReleaseBookFiles(ReaderDoc* doc, Boolean saveState);
+
 /* Redraw the main window while a .pgdata index is being built. */
 void ReaderOnBuildProgress(WindowRef w, ReaderDoc* doc);
 
