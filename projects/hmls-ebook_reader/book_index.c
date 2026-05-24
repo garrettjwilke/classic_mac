@@ -2,6 +2,7 @@
 #include "reader_doc.h"
 
 #include <Dialogs.h>
+#include <Events.h>
 #include <Files.h>
 #include <OSUtils.h>
 #include <Quickdraw.h>
@@ -20,8 +21,13 @@ enum {
     kBookHeaderSize = 24,
     kBookDialogID = 129,
     kBookProgressItem = 2,
-    kPagesPerIdle = 1
+    kPagesPerIdle = 24,
+    kBookDlgStorageSize = 1600
 };
+
+extern void ReaderOnIndexReady(WindowRef w, ReaderDoc* doc);
+
+static char sBookDlgStorage[kBookDlgStorageSize];
 
 typedef struct BookHeader {
     long magic;
@@ -232,6 +238,38 @@ static OSErr TryOpenExistingIndex(ReaderDoc* doc, ConstStr255Param bookName, sho
     return paramErr;
 }
 
+static void YieldDuringBuild(ReaderDoc* doc) {
+    EventRecord e;
+    DialogPtr dlg = doc->bookBuildDlg;
+    WindowPtr dlgWin;
+    GrafPtr oldPort;
+
+    SystemTask();
+    if (!dlg) {
+        return;
+    }
+
+    dlgWin = (WindowPtr)dlg;
+    oldPort = qd.thePort;
+    SetPort(dlg);
+    DrawDialog(dlg);
+    SetPort(oldPort);
+
+    while (EventAvail(updateMask, &e)) {
+        (void)GetNextEvent(updateMask, &e);
+        if (e.what == updateEvt) {
+            WindowPtr w = (WindowPtr)e.message;
+            BeginUpdate(w);
+            if (w == dlgWin) {
+                SetPort(dlg);
+                DrawDialog(dlg);
+                SetPort(oldPort);
+            }
+            EndUpdate(w);
+        }
+    }
+}
+
 static DialogPtr BeginBuildDialog(ReaderDoc* doc) {
     DialogPtr dlg;
     DialogItemType type;
@@ -240,7 +278,7 @@ static DialogPtr BeginBuildDialog(ReaderDoc* doc) {
     GrafPtr oldPort;
     WindowPtr dlgWin;
 
-    dlg = GetNewDialog(kBookDialogID, NULL, (WindowPtr)-1);
+    dlg = GetNewDialog(kBookDialogID, sBookDlgStorage, (WindowPtr)-1);
     if (!dlg) {
         doc->bookTitleProgress = true;
         return NULL;
@@ -260,6 +298,7 @@ static DialogPtr BeginBuildDialog(ReaderDoc* doc) {
     SetPort(dlg);
     DrawDialog(dlg);
     SetPort(oldPort);
+    YieldDuringBuild(doc);
     return dlg;
 }
 
@@ -307,13 +346,28 @@ static void SetBuildProgress(WindowRef w, ReaderDoc* doc, short page) {
 
     if (doc->bookProgressItem) {
         SetDialogItemText(doc->bookProgressItem, msg);
-        if (doc->bookBuildDlg) {
-            GrafPtr oldPort = qd.thePort;
-            SetPort(doc->bookBuildDlg);
-            DrawDialog(doc->bookBuildDlg);
-            SetPort(oldPort);
-        }
     }
+
+    if (w && doc->bookBuilding) {
+        Str255 title;
+        short i;
+
+        title[0] = doc->bookSavedTitle[0];
+        for (i = 1; i <= title[0]; i++) {
+            title[i] = doc->bookSavedTitle[i];
+        }
+        if (title[0] + msg[0] + 3 <= 255) {
+            title[++title[0]] = ' ';
+            title[++title[0]] = '-';
+            title[++title[0]] = ' ';
+            for (i = 1; i <= msg[0]; i++) {
+                title[++title[0]] = msg[i];
+            }
+        }
+        SetWTitle(w, title);
+    }
+
+    YieldDuringBuild(doc);
 
     if (doc->bookTitleProgress && w) {
         Str255 title;
@@ -336,16 +390,7 @@ static void SetBuildProgress(WindowRef w, ReaderDoc* doc, short page) {
 }
 
 static void ServiceBuildDialog(ReaderDoc* doc) {
-    GrafPtr oldPort;
-
-    if (!doc->bookBuildDlg) {
-        return;
-    }
-
-    oldPort = qd.thePort;
-    SetPort(doc->bookBuildDlg);
-    DrawDialog(doc->bookBuildDlg);
-    SetPort(oldPort);
+    YieldDuringBuild(doc);
 }
 
 static void EndBuildDialog(WindowRef w, ReaderDoc* doc) {
@@ -449,6 +494,7 @@ static OSErr FinishBookBuild(WindowRef w, ReaderDoc* doc) {
     }
 
     ApplyHeaderToDoc(doc, &hdr, readRef);
+    ReaderOnIndexReady(w, doc);
     return noErr;
 }
 
@@ -475,6 +521,8 @@ static OSErr BuildStep(WindowRef w, ReaderDoc* doc) {
         }
 
         doc->bookBuildPage++;
+        SetBuildProgress(w, doc, doc->bookBuildPage);
+
         if (doc->bookBuildPos >= contentLen) {
             return FinishBookBuild(w, doc);
         }
@@ -489,7 +537,6 @@ static OSErr BuildStep(WindowRef w, ReaderDoc* doc) {
         }
     }
 
-    SetBuildProgress(w, doc, doc->bookBuildPage);
     return err;
 }
 
@@ -521,6 +568,13 @@ void BookIndexClose(ReaderDoc* doc) {
 
 Boolean BookIndexIsBuilding(ReaderDoc* doc) {
     return doc && doc->bookBuilding;
+}
+
+Boolean BookIndexBlocksUI(ReaderDoc* doc) {
+    if (!doc) {
+        return false;
+    }
+    return doc->bookBuilding || doc->bookIndexPending || doc->bookAwaitingDisplay;
 }
 
 Boolean BookIndexIsOpen(ReaderDoc* doc) {
@@ -567,26 +621,40 @@ OSErr BookIndexPrepare(WindowRef w, ReaderDoc* doc, const SFReply* reply) {
     BookFileName(reply->fName, bookName);
 
     if (TryOpenExistingIndex(doc, bookName, reply->vRefNum, sourceLen, modDate) == noErr) {
+        doc->bookAwaitingDisplay = false;
+        ReaderOnIndexReady(w, doc);
         return noErr;
     }
 
-    return StartBookBuild(w, doc, bookName, reply->vRefNum, sourceLen, modDate);
+    doc->bookAwaitingDisplay = true;
+    if (StartBookBuild(w, doc, bookName, reply->vRefNum, sourceLen, modDate) != noErr) {
+        doc->bookAwaitingDisplay = false;
+        ReaderOnIndexReady(w, doc);
+        return noErr;
+    }
+    return noErr;
 }
 
 void BookIndexIdle(WindowRef w, ReaderDoc* doc) {
     OSErr err;
     Boolean wasBuilding;
+    short burst;
 
     if (!doc || !doc->bookBuilding) {
         return;
     }
 
     wasBuilding = doc->bookBuilding;
+    for (burst = 0; burst < 4 && doc->bookBuilding; burst++) {
+        err = BuildStep(w, doc);
+        if (err != noErr) {
+            BookIndexCancelBuild(doc);
+            ReaderOnIndexReady(w, doc);
+            return;
+        }
+    }
     ServiceBuildDialog(doc);
-    err = BuildStep(w, doc);
-    if (err != noErr) {
-        BookIndexCancelBuild(doc);
-    } else if (wasBuilding && !doc->bookBuilding && w) {
+    if (wasBuilding && !doc->bookBuilding && w) {
         InvalRect(&w->portRect);
     }
 }

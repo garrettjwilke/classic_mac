@@ -627,7 +627,7 @@ static void LayoutReaderWindow(WindowRef w) {
         }
     }
 
-    if (doc->hasFile || doc->memText) {
+    if ((doc->hasFile || doc->memText) && !BookIndexBlocksUI(doc)) {
         if (doc->currentPage < 1) {
             doc->currentPage = 1;
         }
@@ -640,6 +640,7 @@ static void LayoutReaderWindow(WindowRef w) {
 static void DrawReaderPage(WindowRef w) {
     ReaderDoc* doc = GetDoc(w);
     Rect inner;
+    static const char waitMsg[] = "Preparing book...\r\rA .book index file is being\rcreated. Please wait for the\rdialog to close.";
 
     if (!doc || !doc->pageText) {
         return;
@@ -653,7 +654,9 @@ static void DrawReaderPage(WindowRef w) {
     TextFont(3);
     TextSize(12);
 
-    if (doc->pageTextLen > 0) {
+    if (BookIndexBlocksUI(doc) && doc->hasFile) {
+        TETextBox((char*)waitMsg, (long)strlen(waitMsg), &inner, teJustLeft);
+    } else if (doc->pageTextLen > 0) {
         TETextBox(doc->pageText, (long)doc->pageTextLen, &inner, teJustLeft);
     }
 
@@ -912,18 +915,21 @@ static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr
     SetPort(w);
     LayoutReaderWindow(w);
 
-    if (doc->currentPage < 1) {
-        doc->currentPage = 1;
-    }
-    BuildPageAtOffset(doc, doc->pageOffset);
-    UpdatePageNavDisplay(doc);
-    UpdatePageButtons(doc);
-    ForceRedrawWindow(w);
-
     if (reply) {
+        doc->bookAwaitingDisplay = true;
         doc->bookIndexPending = true;
         doc->bookSourceVRefNum = reply->vRefNum;
         memcpy(doc->bookSourceName, reply->fName, reply->fName[0] + 1);
+        ForceRedrawWindow(w);
+    } else if (doc->currentPage < 1) {
+        doc->currentPage = 1;
+    }
+
+    if (!reply) {
+        BuildPageAtOffset(doc, doc->pageOffset);
+        UpdatePageNavDisplay(doc);
+        UpdatePageButtons(doc);
+        ForceRedrawWindow(w);
     }
 }
 
@@ -1059,6 +1065,26 @@ void DoMenuCommand(long menuCommand) {
     HiliteMenu(0);
 }
 
+void ReaderOnIndexReady(WindowRef w, ReaderDoc* doc) {
+    if (!doc || !w) {
+        return;
+    }
+
+    doc->bookAwaitingDisplay = false;
+    if (!doc->hasFile) {
+        return;
+    }
+
+    if (doc->currentPage < 1) {
+        doc->currentPage = 1;
+    }
+    doc->pageOffset = 0;
+    BuildPageAtOffset(doc, 0);
+    UpdatePageNavDisplay(doc);
+    UpdatePageButtons(doc);
+    ForceRedrawWindow(w);
+}
+
 static void ForceRedrawWindow(WindowRef w) {
     ReaderDoc* doc = GetDoc(w);
 
@@ -1112,7 +1138,7 @@ static void DoContentClick(WindowRef w, Point localPt) {
     ControlHandle control;
     short part;
 
-    if (!doc) {
+    if (!doc || BookIndexBlocksUI(doc)) {
         return;
     }
 
@@ -1220,6 +1246,7 @@ int main(void) {
         WindowRef win;
         ReaderDoc* idleDoc = GetDoc(gMainWindow);
         Boolean building = idleDoc && BookIndexIsBuilding(idleDoc);
+        Boolean blocksUI = idleDoc && BookIndexBlocksUI(idleDoc);
         Boolean gotEvent;
 
         SystemTask();
@@ -1244,7 +1271,7 @@ int main(void) {
         }
 
         if (building) {
-            gotEvent = WaitNextEvent(everyEvent, &e, 1, NULL);
+            gotEvent = WaitNextEvent(everyEvent, &e, 0, NULL);
         } else {
             gotEvent = GetNextEvent(everyEvent, &e);
         }
@@ -1271,7 +1298,7 @@ int main(void) {
                             }
                         } else if (win && GetWindowKind(win) >= 0) {
                             ReaderDoc* keyDoc = GetDoc(win);
-                            if (!keyDoc || !BookIndexIsBuilding(keyDoc)) {
+                            if (!keyDoc || !BookIndexBlocksUI(keyDoc)) {
                                 DoKeyPage(win, e.message);
                             }
                         }
@@ -1280,8 +1307,10 @@ int main(void) {
                 case mouseDown:
                     switch (FindWindow(e.where, &win)) {
                         case inMenuBar:
-                            AdjustMenus();
-                            DoMenuCommand(MenuSelect(e.where));
+                            if (!blocksUI) {
+                                AdjustMenus();
+                                DoMenuCommand(MenuSelect(e.where));
+                            }
                             break;
                         case inDrag:
                             DragWindow(win, e.where, &qd.screenBits.bounds);
@@ -1295,14 +1324,16 @@ int main(void) {
                             DoGrowWindow(win, e.where);
                             break;
                         case inContent:
-                            if (win != FrontWindow()) {
-                                SelectWindow(win);
-                            } else {
-                                SetPort(win);
-                                {
-                                    Point localPt = e.where;
-                                    GlobalToLocal(&localPt);
-                                    DoContentClick(win, localPt);
+                            if (!blocksUI) {
+                                if (win != FrontWindow()) {
+                                    SelectWindow(win);
+                                } else {
+                                    SetPort(win);
+                                    {
+                                        Point localPt = e.where;
+                                        GlobalToLocal(&localPt);
+                                        DoContentClick(win, localPt);
+                                    }
                                 }
                             }
                             break;

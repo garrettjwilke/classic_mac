@@ -18,6 +18,8 @@ void BookIndexCancelBuild(ReaderDoc* doc);
 
 Boolean BookIndexIsBuilding(ReaderDoc* doc);
 
+Boolean BookIndexBlocksUI(ReaderDoc* doc);
+
 OSErr BookIndexPageOffset(ReaderDoc* doc, short pageNum, long* outOffset);
 
 void BookIndexClose(ReaderDoc* doc);

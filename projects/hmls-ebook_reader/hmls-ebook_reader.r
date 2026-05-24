@@ -72,7 +72,7 @@ resource 'DITL' (128) {
 };
 
 resource 'ALRT' (129) {
-    {60, 60, 220, 380},
+    {50, 50, 240, 400},
     129,
     {
         OK, visible, silent,
@@ -85,11 +85,13 @@ resource 'ALRT' (129) {
 
 resource 'DITL' (129) {
     {
-        {12, 16, 52, 304}, StaticText { disabled,
-            "Creating .book index file...\r"
-            "Please wait while page offsets are saved."
+        {12, 16, 72, 334}, StaticText { disabled,
+            "A .book index file is being created\r"
+            "for this book. Please wait.\r\r"
+            "You can read the book when this\r"
+            "dialog closes."
         };
-        {64, 16, 84, 304}, StaticText { disabled, "Starting..." };
+        {88, 16, 108, 334}, StaticText { disabled, "Starting..." };
     }
 };
 

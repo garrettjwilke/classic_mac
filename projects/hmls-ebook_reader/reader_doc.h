@@ -61,6 +61,7 @@ typedef struct ReaderDoc {
     Handle bookProgressItem;
     Boolean bookTitleProgress;
     Boolean bookIndexPending;
+    Boolean bookAwaitingDisplay;
     short bookSourceVRefNum;
     Str255 bookSourceName;
     long readBufPos;
