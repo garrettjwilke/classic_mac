@@ -85,7 +85,7 @@ static Boolean ConfirmYesNoAlert(short alertID);
 /*
  * Standard File filter: TRUE = hide, FALSE = show (Inside Macintosh).
  */
-static pascal Boolean TxtOnlyFileFilter(CInfoPBPtr cpb) {
+static pascal Boolean BookOnlyFileFilter(CInfoPBPtr cpb) {
     StringPtr namePtr;
 
     if (cpb == NULL) {
@@ -101,7 +101,7 @@ static pascal Boolean TxtOnlyFileFilter(CInfoPBPtr cpb) {
         return true;
     }
 
-    return !BookIndexNameIsText((ConstStr255Param)namePtr);
+    return !BookIndexNameIsDotBook((ConstStr255Param)namePtr);
 }
 
 static void SetButtonTitle(ControlHandle c, const char* title) {
@@ -1021,7 +1021,7 @@ static void SetWelcomeText(WindowRef w) {
     ReaderDoc* doc = GetDoc(w);
     static const char welcome[] =
         "hmls ebook reader\r\r"
-        "select Open from the File menu to read a .txt file.\r\r"
+        "select Open from the File menu to read a .book file.\r\r"
         "Each screen is one page. Use Page Left and Page Right, "
         "left and right arrow keys, or enter a page number and "
         "Go To Page.\r\r"
@@ -1119,80 +1119,6 @@ static Boolean FileRefLooksLikeBookIndex(short refNum) {
     }
 
     return hdr[0] == 'B' && hdr[1] == 'O' && hdr[2] == 'O' && hdr[3] == 'K' && hdr[4] == 0 && hdr[5] <= 3;
-}
-
-static void StripExtension(ConstStr255Param name, Str255 base) {
-    short len = name[0];
-    short dot = 0;
-    short i;
-
-    if (len > 250) {
-        len = 250;
-    }
-    for (i = 1; i <= len; i++) {
-        if (name[i] == '.') {
-            dot = i;
-        }
-    }
-    if (dot > 1) {
-        len = dot - 1;
-    }
-    base[0] = (unsigned char)len;
-    memcpy(base + 1, name + 1, len);
-}
-
-#ifndef fnfErr
-#define fnfErr (-43)
-#endif
-
-static OSErr OpenTextCandidates(const SFReply* bookReply, Str255 chosenName, short* refNum, long* fileLen) {
-    Str255 names[4];
-    short nameCount = 0;
-    short i;
-    SFReply tryReply;
-    OSErr err;
-
-    BookIndexTextNameFromBook(bookReply->fName, names[nameCount]);
-    nameCount++;
-
-    BookIndexAppendTxtExtension(bookReply->fName, names[nameCount]);
-    nameCount++;
-
-    StripExtension(bookReply->fName, names[nameCount]);
-    nameCount++;
-
-    if (BookIndexNameIsText(bookReply->fName)) {
-        memcpy(names[nameCount], bookReply->fName, bookReply->fName[0] + 1);
-        nameCount++;
-    }
-
-    for (i = 0; i < nameCount; i++) {
-        short j;
-
-        for (j = 0; j < i; j++) {
-            if (names[i][0] == names[j][0] && memcmp(names[i] + 1, names[j] + 1, names[i][0]) == 0) {
-                break;
-            }
-        }
-        if (j < i) {
-            continue;
-        }
-
-        tryReply = *bookReply;
-        BookIndexCopyToSFName(names[i], tryReply.fName);
-
-        err = OpenFromSFReply(&tryReply, refNum, fileLen);
-        if (err == noErr && !FileRefLooksLikeBookIndex(*refNum)) {
-            memcpy(chosenName, names[i], names[i][0] + 1);
-            return noErr;
-        }
-        if (*refNum > 0) {
-            FSClose(*refNum);
-            *refNum = 0;
-        }
-    }
-
-    return fnfErr;
 }
 
 static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr255Param title,
@@ -1318,7 +1244,7 @@ void DoOpenFile(void) {
     Str255 textName;
     ReaderDoc* doc;
 
-    SFGetFile(where, "\p", NewFileFilterUPP(TxtOnlyFileFilter), -1, NULL, NULL, &reply);
+    SFGetFile(where, "\p", NewFileFilterUPP(BookOnlyFileFilter), -1, NULL, NULL, &reply);
 
     if (!gMainWindow) {
         return;
@@ -1332,7 +1258,7 @@ void DoOpenFile(void) {
         return;
     }
 
-    if (!BookIndexNameIsText(reply.fName)) {
+    if (!BookIndexNameIsDotBook(reply.fName)) {
         SysBeep(1);
         if (doc && !doc->hasFile) {
             SetWelcomeText(gMainWindow);

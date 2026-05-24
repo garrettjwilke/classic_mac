@@ -28,6 +28,10 @@ Boolean BookIndexIsOpen(ReaderDoc* doc);
 
 Boolean BookIndexNameIsText(ConstStr255Param name);
 
+/* Plain-text book source (same content as .txt, .book extension). */
+Boolean BookIndexNameIsDotBook(ConstStr255Param name);
+
+/* Paginated index sidecar (.pgdata), not the text source. */
 Boolean BookIndexNameIsBook(ConstStr255Param name);
 
 Boolean BookIndexNameIsAllowed(ConstStr255Param name);

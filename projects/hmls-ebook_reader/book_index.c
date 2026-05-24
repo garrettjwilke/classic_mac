@@ -71,12 +71,16 @@ Boolean BookIndexNameIsText(ConstStr255Param name) {
     return PascalSuffixMatches(name, ".txt");
 }
 
+Boolean BookIndexNameIsDotBook(ConstStr255Param name) {
+    return PascalSuffixMatches(name, ".book");
+}
+
 Boolean BookIndexNameIsBook(ConstStr255Param name) {
-    return PascalSuffixMatches(name, ".pgdata") || PascalSuffixMatches(name, ".book");
+    return PascalSuffixMatches(name, ".pgdata");
 }
 
 Boolean BookIndexNameIsAllowed(ConstStr255Param name) {
-    return BookIndexNameIsText(name) || BookIndexNameIsBook(name);
+    return BookIndexNameIsDotBook(name) || BookIndexNameIsText(name) || BookIndexNameIsBook(name);
 }
 
 void BookIndexAppendTxtExtension(ConstStr255Param baseName, Str255 txtName) {
@@ -87,11 +91,12 @@ void BookIndexAppendTxtExtension(ConstStr255Param baseName, Str255 txtName) {
     }
     txtName[0] = (unsigned char)len;
     memcpy(txtName + 1, baseName + 1, len);
-    if (!BookIndexNameIsText(txtName) && len + 4 <= 255) {
+    if (!BookIndexNameIsText(txtName) && !BookIndexNameIsDotBook(txtName) && len + 5 <= 255) {
         txtName[++len] = '.';
-        txtName[++len] = 't';
-        txtName[++len] = 'x';
-        txtName[++len] = 't';
+        txtName[++len] = 'b';
+        txtName[++len] = 'o';
+        txtName[++len] = 'o';
+        txtName[++len] = 'k';
         txtName[0] = (unsigned char)len;
     }
 }
@@ -116,15 +121,21 @@ void BookIndexTextNameFromBook(ConstStr255Param bookName, Str255 txtName) {
     if (dot > 0 && dot + 6 <= len && txtName[dot + 1] == 'p' && txtName[dot + 2] == 'g'
         && txtName[dot + 3] == 'd' && txtName[dot + 4] == 'a' && txtName[dot + 5] == 't'
         && txtName[dot + 6] == 'a') {
-        txtName[0] = (unsigned char)(dot + 3);
-        txtName[dot + 1] = 't';
-        txtName[dot + 2] = 'x';
-        txtName[dot + 3] = 't';
-    } else if (dot > 0 && dot + 3 <= len && txtName[dot + 1] == 'b' && txtName[dot + 2] == 'o'
-        && txtName[dot + 3] == 'k') {
-        txtName[dot + 1] = 't';
-        txtName[dot + 2] = 'x';
-        txtName[dot + 3] = 't';
+        txtName[dot + 1] = 'b';
+        txtName[dot + 2] = 'o';
+        txtName[dot + 3] = 'o';
+        txtName[dot + 4] = 'k';
+        txtName[0] = (unsigned char)(dot + 4);
+    } else if (dot > 0 && dot + 4 <= len && txtName[dot + 1] == 'b' && txtName[dot + 2] == 'o'
+        && txtName[dot + 3] == 'o' && txtName[dot + 4] == 'k') {
+        return;
+    } else if (dot > 0 && dot + 3 <= len && txtName[dot + 1] == 't' && txtName[dot + 2] == 'x'
+        && txtName[dot + 3] == 't') {
+        txtName[dot + 1] = 'b';
+        txtName[dot + 2] = 'o';
+        txtName[dot + 3] = 'o';
+        txtName[dot + 4] = 'k';
+        txtName[0] = (unsigned char)(dot + 4);
     } else {
         BookIndexAppendTxtExtension(bookName, txtName);
     }
@@ -158,6 +169,11 @@ static Boolean PascalNameHasExtension(ConstStr255Param name) {
 Boolean BookIndexResolveTextOpen(const SFReply* reply, Str255 textName) {
     if (!reply || !reply->good) {
         return false;
+    }
+
+    if (BookIndexNameIsDotBook(reply->fName)) {
+        memcpy(textName, reply->fName, reply->fName[0] + 1);
+        return true;
     }
 
     if (BookIndexSFReplyIsBook(reply)) {
@@ -231,7 +247,13 @@ static void BookFileName(ConstStr255Param txtName, Str255 bookName) {
         }
     }
 
-    if (dot > 0 && dot + 6 <= 255) {
+    if (dot > 0 && dot + 6 <= len && bookName[dot + 1] == 'p' && bookName[dot + 2] == 'g'
+        && bookName[dot + 3] == 'd' && bookName[dot + 4] == 'a' && bookName[dot + 5] == 't'
+        && bookName[dot + 6] == 'a') {
+        return;
+    }
+    if (dot > 0 && dot + 4 <= len && bookName[dot + 1] == 'b' && bookName[dot + 2] == 'o'
+        && bookName[dot + 3] == 'o' && bookName[dot + 4] == 'k') {
         bookName[dot + 1] = 'p';
         bookName[dot + 2] = 'g';
         bookName[dot + 3] = 'd';
@@ -239,7 +261,20 @@ static void BookFileName(ConstStr255Param txtName, Str255 bookName) {
         bookName[dot + 5] = 't';
         bookName[dot + 6] = 'a';
         bookName[0] = (unsigned char)(dot + 6);
-    } else if (len + 7 <= 255) {
+        return;
+    }
+    if (dot > 0 && dot + 3 <= len && bookName[dot + 1] == 't' && bookName[dot + 2] == 'x'
+        && bookName[dot + 3] == 't') {
+        bookName[dot + 1] = 'p';
+        bookName[dot + 2] = 'g';
+        bookName[dot + 3] = 'd';
+        bookName[dot + 4] = 'a';
+        bookName[dot + 5] = 't';
+        bookName[dot + 6] = 'a';
+        bookName[0] = (unsigned char)(dot + 6);
+        return;
+    }
+    if (len + 7 <= 255) {
         bookName[++len] = '.';
         bookName[++len] = 'p';
         bookName[++len] = 'g';
