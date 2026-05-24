@@ -22,6 +22,7 @@ enum {
     kBookDialogID = 129,
     kBookProgressItem = 2,
     kPagesPerIdle = 24,
+    kBuildUIRedrawInterval = 20,
     kBookDlgStorageSize = 1600
 };
 
@@ -499,6 +500,7 @@ static void PageNumberToStr255(short page, Str255 msg) {
 
 static void SetBuildProgress(WindowRef w, ReaderDoc* doc, short page) {
     Str255 msg;
+    Boolean refreshMain = (page <= 0 || (page % kBuildUIRedrawInterval) == 0);
 
     if (page <= 0) {
         msg[0] = 10;
@@ -511,7 +513,7 @@ static void SetBuildProgress(WindowRef w, ReaderDoc* doc, short page) {
         SetDialogItemText(doc->bookProgressItem, msg);
     }
 
-    if (w && doc->bookBuilding) {
+    if (refreshMain && w && doc->bookBuilding) {
         Str255 title;
         short i;
 
@@ -532,11 +534,11 @@ static void SetBuildProgress(WindowRef w, ReaderDoc* doc, short page) {
 
     YieldDuringBuild(doc);
 
-    if (w && (doc->bookBuilding || doc->bookAwaitingDisplay)) {
+    if (refreshMain && w && (doc->bookBuilding || doc->bookAwaitingDisplay)) {
         ReaderOnBuildProgress(w, doc);
     }
 
-    if (doc->bookTitleProgress && w) {
+    if (refreshMain && doc->bookTitleProgress && w) {
         Str255 title;
         short i;
 
