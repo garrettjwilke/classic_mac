@@ -8,7 +8,7 @@
 
 typedef struct ReaderDoc ReaderDoc;
 
-/* Load an existing .book file, or start building one in the background. */
+/* Load an existing .pgdata file, or start building one in the background. */
 OSErr BookIndexPrepare(WindowRef w, ReaderDoc* doc, const SFReply* reply);
 
 /* Call often from the main event loop while indexing. */
@@ -43,7 +43,7 @@ Boolean BookIndexResolveTextOpen(const SFReply* reply, Str255 textName);
 
 void BookIndexCopyToSFName(ConstStr255Param src, Str63 dst);
 
-/* Delete the .book sidecar and rebuild the index for the open book. */
+/* Delete the .pgdata sidecar and rebuild the index for the open book. */
 OSErr BookIndexRegenerate(WindowRef w, ReaderDoc* doc);
 
 #endif

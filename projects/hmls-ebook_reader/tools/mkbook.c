@@ -1,12 +1,13 @@
 /*
- * mkbook — build .book page-index files for hmls-ebook_reader on modern hosts.
+ * mkbook — build .pgdata page-index files for hmls-ebook_reader on modern hosts.
  *
  * Usage:
- *   mkbook [options] input.txt [output.book]
+ *   mkbook [options] input.txt [output.pgdata]
  *
- * Build (from repo root):
- *   cmake -S projects/hmls-ebook_reader/tools -B build/mkbook
- *   cmake --build build/mkbook
+ * Build (standalone, from this directory):
+ *   cd projects/hmls-ebook_reader/tools
+ *   cmake -B build
+ *   cmake --build build
  */
 
 #include "book_format.h"
@@ -19,12 +20,12 @@
 
 static void usage(const char* prog) {
     fprintf(stderr,
-        "Usage: %s [options] input.txt [output.book]\n"
+        "Usage: %s [options] input.txt [output.pgdata]\n"
         "\n"
-        "Build a .book page index for hmls-ebook_reader (Classic Mac).\n"
+        "Build a .pgdata page index for hmls-ebook_reader (Classic Mac).\n"
         "\n"
         "Options:\n"
-        "  -o PATH       Output .book file (default: input with .book extension)\n"
+        "  -o PATH       Output .pgdata file (default: input with .pgdata extension)\n"
         "  -l LINES      Lines per page (default: full-screen reader layout)\n"
         "  -H HEIGHT     Line height in pixels (default: %d)\n"
         "  -W WIDTH      Max line width in pixels (default: full-screen reader layout)\n"
@@ -99,12 +100,12 @@ static char* default_book_path(const char* txtPath) {
         len = (size_t)(dot - txtPath);
     }
 
-    out = (char*)malloc(len + 6U);
+    out = (char*)malloc(len + 8U);
     if (!out) {
         return NULL;
     }
     memcpy(out, txtPath, len);
-    memcpy(out + len, ".book", 6);
+    memcpy(out + len, ".pgdata", 7);
     return out;
 }
 

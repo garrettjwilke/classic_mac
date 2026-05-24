@@ -72,7 +72,7 @@ Boolean BookIndexNameIsText(ConstStr255Param name) {
 }
 
 Boolean BookIndexNameIsBook(ConstStr255Param name) {
-    return PascalSuffixMatches(name, ".book");
+    return PascalSuffixMatches(name, ".pgdata") || PascalSuffixMatches(name, ".book");
 }
 
 Boolean BookIndexNameIsAllowed(ConstStr255Param name) {
@@ -113,7 +113,14 @@ void BookIndexTextNameFromBook(ConstStr255Param bookName, Str255 txtName) {
         }
     }
 
-    if (dot > 0 && dot + 3 <= len && txtName[dot + 1] == 'b' && txtName[dot + 2] == 'o'
+    if (dot > 0 && dot + 6 <= len && txtName[dot + 1] == 'p' && txtName[dot + 2] == 'g'
+        && txtName[dot + 3] == 'd' && txtName[dot + 4] == 'a' && txtName[dot + 5] == 't'
+        && txtName[dot + 6] == 'a') {
+        txtName[0] = (unsigned char)(dot + 3);
+        txtName[dot + 1] = 't';
+        txtName[dot + 2] = 'x';
+        txtName[dot + 3] = 't';
+    } else if (dot > 0 && dot + 3 <= len && txtName[dot + 1] == 'b' && txtName[dot + 2] == 'o'
         && txtName[dot + 3] == 'k') {
         txtName[dot + 1] = 't';
         txtName[dot + 2] = 'x';
@@ -127,7 +134,10 @@ Boolean BookIndexSFReplyIsBook(const SFReply* reply) {
     if (!reply) {
         return false;
     }
-    if (reply->fType == (OSType)0x424F4F4B) { /* 'BOOK' */
+    if (reply->fType == (OSType)0x50474454) { /* 'PGDT' */
+        return true;
+    }
+    if (reply->fType == (OSType)0x424F4F4B) { /* 'BOOK' legacy */
         return true;
     }
     return BookIndexNameIsBook(reply->fName);
@@ -221,18 +231,22 @@ static void BookFileName(ConstStr255Param txtName, Str255 bookName) {
         }
     }
 
-    if (dot > 0 && dot + 4 <= 255) {
-        bookName[dot + 1] = 'b';
-        bookName[dot + 2] = 'o';
-        bookName[dot + 3] = 'o';
-        bookName[dot + 4] = 'k';
-        bookName[0] = (unsigned char)(dot + 4);
-    } else if (len + 5 <= 255) {
+    if (dot > 0 && dot + 6 <= 255) {
+        bookName[dot + 1] = 'p';
+        bookName[dot + 2] = 'g';
+        bookName[dot + 3] = 'd';
+        bookName[dot + 4] = 'a';
+        bookName[dot + 5] = 't';
+        bookName[dot + 6] = 'a';
+        bookName[0] = (unsigned char)(dot + 6);
+    } else if (len + 7 <= 255) {
         bookName[++len] = '.';
-        bookName[++len] = 'b';
-        bookName[++len] = 'o';
-        bookName[++len] = 'o';
-        bookName[++len] = 'k';
+        bookName[++len] = 'p';
+        bookName[++len] = 'g';
+        bookName[++len] = 'd';
+        bookName[++len] = 'a';
+        bookName[++len] = 't';
+        bookName[++len] = 'a';
         bookName[0] = (unsigned char)len;
     }
 }
@@ -577,7 +591,7 @@ static void EndBuildDialog(WindowRef w, ReaderDoc* doc) {
 static OSErr CreateEmptyBook(ConstStr255Param bookName, short vRefNum, short* refNum) {
     OSErr err;
 
-    err = Create(bookName, vRefNum, 'RDR ', 'BOOK');
+    err = Create(bookName, vRefNum, 'RDR ', 'PGDT');
     if (err != noErr && err != dupErr) {
         return err;
     }

@@ -56,7 +56,7 @@ resource 'MENU' (132) {
     allEnabled, enabled;
     "Options";
     {
-        "Regenerate .book Index", noIcon, noKey, noMark, plain;
+        "Regenerate .pgdata Index", noIcon, noKey, noMark, plain;
         "Delete Bookmarks and Reading Progress", noIcon, noKey, noMark, plain;
     }
 };
@@ -107,7 +107,7 @@ resource 'ALRT' (129) {
 resource 'DITL' (129) {
     {
         {12, 16, 72, 334}, StaticText { disabled,
-            "A .book index file is being created\r"
+            "A .pgdata index file is being created\r"
             "for this book. Please wait.\r\r"
             "You can read the book when this\r"
             "dialog closes."
@@ -133,7 +133,7 @@ resource 'DITL' (130) {
         {100, 220, 120, 280}, Button { enabled, "Yes" };
         {100, 140, 120, 200}, Button { enabled, "No" };
         {15, 20, 90, 300}, StaticText { disabled,
-            "Regenerate the .book index file for this book?\r\r"
+            "Regenerate the .pgdata index file for this book?\r\r"
             "The existing index will be deleted and rebuilt."
         };
     }

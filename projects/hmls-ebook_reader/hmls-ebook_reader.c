@@ -1027,7 +1027,7 @@ static void SetWelcomeText(WindowRef w) {
         "Go To Page.\r\r"
         "Long chapters are read from disk in sections; there is "
         "no 32K limit.\r\r"
-        "A .book index file is created beside each text file "
+        "A .pgdata index file is created beside each text file "
         "for fast page jumps.";
 
     if (!doc) {
