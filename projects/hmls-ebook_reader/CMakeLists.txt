@@ -5,8 +5,11 @@ add_application(${APP_NAME}
     ${APP_NAME}.c
     book_index.c
     reader_state.c
+    tools/geneva12.c
     ${APP_NAME}.r
     )
+
+target_include_directories(${APP_NAME} PRIVATE tools)
 
 set_target_properties(${APP_NAME} PROPERTIES COMPILE_OPTIONS "-m68000;-msoft-float;-ffunction-sections")
 if(CMAKE_SYSTEM_NAME MATCHES Retro68)

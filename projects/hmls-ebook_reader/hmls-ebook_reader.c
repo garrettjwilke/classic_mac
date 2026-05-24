@@ -17,6 +17,7 @@
 #include "book_index.h"
 #include "reader_doc.h"
 #include "reader_state.h"
+#include "geneva12.h"
 
 enum {
     kMenuApple = 128,
@@ -61,6 +62,10 @@ enum {
     kNavItemGap = 10,
     kTextInset = 6,
     kLineBufSize = 256,
+    /*
+     * Must match kLineWrapMargin in tools/book_format.h (mkbook pagination).
+     */
+    kLineWrapMargin = 8,
     kMinWindowWidth = 240,
     kMinWindowHeight = 180
 };
@@ -171,6 +176,19 @@ static int ReadSanitizedChar(ReaderDoc* doc, long* pos) {
     }
 
     uc = (unsigned char)c;
+    if (uc == 0x1B) {
+        /* Skip ANSI CSI sequences (e.g. SGR \x1b[1m); not visible in Geneva 12. */
+        c = ReadRawByte(doc, pos);
+        if (c == '[') {
+            for (;;) {
+                c = ReadRawByte(doc, pos);
+                if (c < 0 || c == 'm' || c == 'h') {
+                    break;
+                }
+            }
+        }
+        return ReadSanitizedChar(doc, pos);
+    }
     if (uc < 0x80) {
         return (c == '\n') ? '\r' : c;
     }
@@ -220,6 +238,19 @@ static int ReadMemChar(ReaderDoc* doc, long* pos) {
 
     (*pos)++;
     uc = (unsigned char)doc->memText[i];
+    if (uc == 0x1B && i + 1 < doc->memLen) {
+        if (doc->memText[i + 1] == '[') {
+            i += 2;
+            while (i < doc->memLen && doc->memText[i] != 'm' && doc->memText[i] != 'h') {
+                i++;
+            }
+            if (i < doc->memLen) {
+                i++;
+            }
+            *pos = i;
+            return ReadMemChar(doc, pos);
+        }
+    }
     if (uc < 0x80) {
         return (uc == '\n') ? '\r' : (int)uc;
     }
@@ -264,8 +295,7 @@ static short LinePixelWidth(char* line, short len) {
     if (len <= 0) {
         return 0;
     }
-    EnsureReaderFont();
-    return TextWidth(line, 0, len);
+    return (short)geneva12_text_width(line, (int)len);
 }
 
 static void TrimTrailingSpaces(char* lineBuf, short* lineLen) {
@@ -317,7 +347,7 @@ static Boolean ReaderReadOneLine(ReaderDoc* doc, long* pos, char* lineBuf, short
         lineBuf[len++] = (char)ch;
         lineBuf[len] = '\0';
 
-        if (LinePixelWidth(lineBuf, len) > doc->maxPixelWidth) {
+        if (LinePixelWidth(lineBuf, len) > doc->maxPixelWidth - kLineWrapMargin) {
             short breakAt = len - 1;
 
             while (breakAt > 0 && lineBuf[breakAt - 1] != ' ') {
@@ -817,7 +847,33 @@ static void DrawReaderText(WindowRef w) {
         BuildIndexStatusMessage(doc, statusMsg, (short)sizeof(statusMsg));
         TETextBox(statusMsg, (long)strlen(statusMsg), &inner, teJustLeft);
     } else if (doc->pageTextLen > 0) {
-        TETextBox(doc->pageText, (long)doc->pageTextLen, &inner, teJustLeft);
+        FontInfo fontInfo;
+        char* cursor;
+        char* end;
+        short line;
+
+        GetFontInfo(&fontInfo);
+        ClipRect(&inner);
+        cursor = doc->pageText;
+        end = doc->pageText + doc->pageTextLen;
+        for (line = 0; line < doc->linesPerPage && cursor < end; line++) {
+            char* lineStart = cursor;
+            char* lineEnd = cursor;
+
+            while (lineEnd < end && *lineEnd != '\r') {
+                lineEnd++;
+            }
+            if (lineEnd > lineStart) {
+                MoveTo(inner.left,
+                    inner.top + (line * doc->lineHeight) + fontInfo.ascent);
+                DrawText(lineStart, 0, (short)(lineEnd - lineStart));
+            }
+            if (lineEnd < end && *lineEnd == '\r') {
+                lineEnd++;
+            }
+            cursor = lineEnd;
+        }
+        ClipRect(&w->portRect);
     }
 }
 
@@ -946,6 +1002,8 @@ static void TurnPage(WindowRef w, short direction) {
     }
 
     if (direction > 0) {
+        long offset;
+
         if (!doc->canGoForward) {
             return;
         }
@@ -955,7 +1013,12 @@ static void TurnPage(WindowRef w, short direction) {
             doc->pageHistoryCount++;
         }
         doc->currentPage++;
-        BuildPageAtOffset(doc, doc->nextPageOffset);
+        if (BookIndexIsOpen(doc)
+            && BookIndexPageOffset(doc, doc->currentPage, &offset) == noErr) {
+            BuildPageAtOffset(doc, offset);
+        } else {
+            BuildPageAtOffset(doc, doc->nextPageOffset);
+        }
     } else {
         long offset;
 

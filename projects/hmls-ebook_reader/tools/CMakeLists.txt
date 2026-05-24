@@ -11,7 +11,6 @@
 #   ./build/mkbook path/to/book.txt
 #   ./build/mkbook -o path/to/book.pgdata path/to/book.txt
 #
-# mkbook.c lives here; paginate and geneva12 sources are shared from ../mkbook/.
 # The Classic Mac reader app is built separately (./build.sh from the repo root).
 
 cmake_minimum_required(VERSION 3.16)
@@ -22,18 +21,13 @@ if(CMAKE_SYSTEM_NAME MATCHES Retro68)
     return()
 endif()
 
-set(MKBOOK_COMMON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../mkbook)
-
 add_executable(mkbook
     mkbook.c
-    ${MKBOOK_COMMON_DIR}/paginate.c
-    ${MKBOOK_COMMON_DIR}/geneva12.c
+    paginate.c
+    geneva12.c
 )
 
-target_include_directories(mkbook PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${MKBOOK_COMMON_DIR}
-)
+target_include_directories(mkbook PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(MSVC)
     target_compile_options(mkbook PRIVATE /W4)

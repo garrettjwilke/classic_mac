@@ -243,7 +243,19 @@ int main(int argc, char** argv) {
             continue;
         }
         if (strcmp(argv[i], "-H") == 0 && i + 1 < argc) {
+            short innerHeight;
+            short windowHeight;
+            short boxHeight;
+
             layout.lineHeight = (int16_t)atoi(argv[++i]);
+            windowHeight = (short)(kDefaultScreenHeight - kDefaultMenuBarHeight);
+            boxHeight = (short)(windowHeight - (kDefaultContentMargin * 2)
+                - (kDefaultNavBarHeight - kDefaultTextBoxExtraHeight));
+            innerHeight = (short)(boxHeight - (kDefaultTextInset * 2));
+            layout.linesPerPage = (short)(innerHeight / layout.lineHeight);
+            if (layout.linesPerPage < 4) {
+                layout.linesPerPage = 4;
+            }
             continue;
         }
         if (strcmp(argv[i], "-W") == 0 && i + 1 < argc) {
