@@ -1,0 +1,1958 @@
+#include <Quickdraw.h>
+#include <Windows.h>
+#include <Menus.h>
+#include <Fonts.h>
+#include <Resources.h>
+#include <TextEdit.h>
+#include <TextUtils.h>
+#include <Dialogs.h>
+#include <Devices.h>
+#include <StandardFile.h>
+#include <Files.h>
+#include <OSUtils.h>
+#include <Memory.h>
+
+#include <string.h>
+
+#include "book_index.h"
+#include "reader_doc.h"
+#include "reader_state.h"
+#include "epub_import.h"
+#include "geneva12.h"
+#include "book_format.h"
+
+enum {
+    kMenuApple = 128,
+    kMenuFile = 129,
+    kMenuEdit = 130,
+    kMenuOptions = 132
+};
+
+enum {
+    kItemRegenerateBook = 1,
+    kItemDeleteReadFile = 2
+};
+
+enum {
+    kConfirmRegenerateAlert = 130,
+    kConfirmDeleteReadAlert = 131,
+    kAlertButtonYes = 1
+};
+
+enum {
+    kItemAbout = 1
+};
+
+enum {
+    kItemOpen = 1,
+    kItemClose = 2,
+    kItemQuit = 4
+};
+
+enum {
+    kMenuBarHeight = 20,
+    kGrowBoxSize = 15,
+    kContentMargin = 8,
+    kNavBarHeight = 40,
+    kTextBoxExtraHeight = 2,
+    kButtonWidth = 80,
+    kButtonHeight = 20,
+    kPageEditWidth = 48,
+    kPageEditHeight = 20,
+    kPageTotalLabelWidth = 56,
+    kGoButtonWidth = 72,
+    kNavItemGap = 10,
+    kTextInset = 6,
+    kLineBufSize = 256,
+    kMinWindowWidth = 240,
+    kMinWindowHeight = 180
+};
+
+static WindowRef gMainWindow;
+
+static void FillScreenWindow(WindowRef w);
+static void LayoutReaderWindow(WindowRef w);
+static void DrawReaderPage(WindowRef w);
+static void TurnPage(WindowRef w, short direction);
+static void GoToPageNumber(WindowRef w, short pageNum);
+static void DoContentClick(WindowRef w, Point localPt);
+static void DoKeyPage(WindowRef w, long keyMessage);
+static void ForceRedrawWindow(WindowRef w);
+static void AppendDecimal(char* buf, short* len, short maxLen, short value);
+static Boolean ConfirmYesNoAlert(short alertID);
+
+#ifndef ioDirMask
+#define ioDirMask 0x10
+#endif
+
+/*
+ * Standard File filter: TRUE = hide, FALSE = show (Inside Macintosh).
+ */
+static pascal Boolean EpubOnlyFileFilter(CInfoPBPtr cpb) {
+    StringPtr namePtr;
+
+    if (cpb == NULL) {
+        return false;
+    }
+
+    if (cpb->dirInfo.ioFlAttrib & ioDirMask) {
+        return false;
+    }
+
+    namePtr = cpb->dirInfo.ioNamePtr;
+    if (namePtr == NULL) {
+        return true;
+    }
+
+    return !EpubNameIsEpub((ConstStr255Param)namePtr);
+}
+
+static void SetButtonTitle(ControlHandle c, const char* title) {
+    Str255 ptitle;
+    short len = (short)strlen(title);
+    if (len > 255) {
+        len = 255;
+    }
+    ptitle[0] = (unsigned char)len;
+    memcpy(&ptitle[1], title, len);
+    SetControlTitle(c, ptitle);
+}
+
+static ReaderDoc* GetDoc(WindowRef w) {
+    return (ReaderDoc*)GetWRefCon(w);
+}
+
+static void InvalidateReadBuf(ReaderDoc* doc) {
+    doc->readBufPos = -1;
+    doc->readBufCount = 0;
+}
+
+static int ReadRawByte(ReaderDoc* doc, long* pos) {
+    long offset = *pos;
+    long count;
+    long index;
+    OSErr err;
+
+    if (doc->fileRef <= 0 || offset >= doc->fileLen) {
+        return -1;
+    }
+
+    if (doc->readBufPos < 0 || offset < doc->readBufPos
+        || offset >= doc->readBufPos + (long)doc->readBufCount) {
+        doc->readBufPos = offset;
+        count = kReadBufSize;
+        if (doc->readBufPos + count > doc->fileLen) {
+            count = doc->fileLen - doc->readBufPos;
+        }
+        if (count <= 0) {
+            return -1;
+        }
+        err = SetFPos(doc->fileRef, fsFromStart, doc->readBufPos);
+        if (err != noErr) {
+            return -1;
+        }
+        err = FSRead(doc->fileRef, &count, (Ptr)doc->readBuf);
+        if (err != noErr || count == 0) {
+            return -1;
+        }
+        doc->readBufCount = (short)count;
+    }
+
+    index = offset - doc->readBufPos;
+    (*pos)++;
+    return (int)doc->readBuf[index];
+}
+
+static int ReadSanitizedChar(ReaderDoc* doc, long* pos) {
+    int c = ReadRawByte(doc, pos);
+    unsigned char uc;
+    unsigned char u2;
+    unsigned char u3;
+
+    if (c < 0) {
+        return -1;
+    }
+
+    uc = (unsigned char)c;
+    if (uc == 0x1B) {
+        /* Skip ANSI CSI sequences (e.g. SGR \x1b[1m); not visible in Geneva 12. */
+        c = ReadRawByte(doc, pos);
+        if (c == '[') {
+            for (;;) {
+                c = ReadRawByte(doc, pos);
+                if (c < 0 || c == 'm' || c == 'h') {
+                    break;
+                }
+            }
+        }
+        return ReadSanitizedChar(doc, pos);
+    }
+    if (uc < 0x80) {
+        return (c == '\n') ? '\r' : c;
+    }
+
+    if (uc == 0xE2) {
+        c = ReadRawByte(doc, pos);
+        u2 = (c < 0) ? 0 : (unsigned char)c;
+        c = ReadRawByte(doc, pos);
+        u3 = (c < 0) ? 0 : (unsigned char)c;
+        if (u2 == 0x80) {
+            if (u3 == 0x9C || u3 == 0x9D) {
+                return '"';
+            }
+            if (u3 == 0x98 || u3 == 0x99) {
+                return '\'';
+            }
+            if (u3 == 0x94) {
+                return '-';
+            }
+        }
+        return ' ';
+    }
+
+    if (uc >= 0xC0) {
+        for (;;) {
+            c = ReadRawByte(doc, pos);
+            if (c < 0) {
+                break;
+            }
+            if (((unsigned char)c & 0xC0) != 0x80) {
+                break;
+            }
+        }
+    }
+    return ' ';
+}
+
+static int ReadMemChar(ReaderDoc* doc, long* pos) {
+    long i = *pos;
+    unsigned char uc;
+    unsigned char u2;
+    unsigned char u3;
+
+    if (i >= doc->memLen) {
+        return -1;
+    }
+
+    (*pos)++;
+    uc = (unsigned char)doc->memText[i];
+    if (uc == 0x1B && i + 1 < doc->memLen) {
+        if (doc->memText[i + 1] == '[') {
+            i += 2;
+            while (i < doc->memLen && doc->memText[i] != 'm' && doc->memText[i] != 'h') {
+                i++;
+            }
+            if (i < doc->memLen) {
+                i++;
+            }
+            *pos = i;
+            return ReadMemChar(doc, pos);
+        }
+    }
+    if (uc < 0x80) {
+        return (uc == '\n') ? '\r' : (int)uc;
+    }
+
+    if (uc == 0xE2 && i + 2 < doc->memLen) {
+        u2 = (unsigned char)doc->memText[i + 1];
+        u3 = (unsigned char)doc->memText[i + 2];
+        *pos += 2;
+        if (u2 == 0x80) {
+            if (u3 == 0x9C || u3 == 0x9D) {
+                return '"';
+            }
+            if (u3 == 0x98 || u3 == 0x99) {
+                return '\'';
+            }
+            if (u3 == 0x94) {
+                return '-';
+            }
+        }
+        return ' ';
+    }
+
+    return ' ';
+}
+
+long ReaderContentLength(ReaderDoc* doc) {
+    if (doc->fileRef > 0) {
+        return doc->fileLen;
+    }
+    if (doc->memText) {
+        return doc->memLen;
+    }
+    return 0;
+}
+
+void ReaderReleaseBookFiles(ReaderDoc* doc, Boolean saveState) {
+    if (!doc) {
+        return;
+    }
+
+    if (saveState && doc->hasFile && doc->bookSourceName[0] > 0) {
+        ReaderStateSave(doc);
+    }
+
+    BookIndexClose(doc);
+
+    if (doc->fileRef > 0) {
+        FSClose(doc->fileRef);
+        doc->fileRef = 0;
+    }
+
+    InvalidateReadBuf(doc);
+    doc->hasFile = false;
+    doc->fileLen = 0;
+    doc->memText = NULL;
+    doc->memLen = 0;
+    doc->bookSourceName[0] = 0;
+    doc->bookSourceVRefNum = 0;
+    doc->bookIndexPending = false;
+    doc->bookAwaitingDisplay = false;
+    doc->bookBuilding = false;
+    doc->totalPages = 0;
+    doc->bookPageCount = 0;
+    doc->pageHistoryCount = 0;
+    doc->pageOffset = 0;
+    doc->nextPageOffset = 0;
+    doc->currentPage = 1;
+    doc->savedLastPage = 1;
+    doc->bookmarkCount = 0;
+}
+
+static void EnsureReaderFont(void) {
+    TextFont(3); /* Geneva */
+    TextSize(12);
+}
+
+static short LinePixelWidth(char* line, short len) {
+    if (len <= 0) {
+        return 0;
+    }
+    return (short)geneva12_text_width(line, (int)len);
+}
+
+static void TrimTrailingSpaces(char* lineBuf, short* lineLen) {
+    while (*lineLen > 0 && lineBuf[*lineLen - 1] == ' ') {
+        (*lineLen)--;
+    }
+    lineBuf[*lineLen] = '\0';
+}
+
+static void RewindPos(ReaderDoc* doc, long* pos, short consumed, short keep) {
+    long rewindCount = (long)consumed - (long)keep;
+
+    if (rewindCount <= 0) {
+        return;
+    }
+    *pos -= rewindCount;
+    if (doc->fileRef > 0) {
+        SetFPos(doc->fileRef, fsFromStart, *pos);
+        InvalidateReadBuf(doc);
+    }
+}
+
+/*
+ * Read one display line: honor source line breaks (\r), then word-wrap at
+ * maxPixelWidth. Returns false at EOF.
+ */
+static Boolean ReaderReadOneLine(ReaderDoc* doc, long* pos, char* lineBuf, short* lineLen) {
+    int ch;
+    short len = 0;
+
+    lineBuf[0] = '\0';
+
+    while (len < kLineBufSize - 1) {
+        if (doc->fileRef > 0) {
+            ch = ReadSanitizedChar(doc, pos);
+        } else {
+            ch = ReadMemChar(doc, pos);
+        }
+        if (ch < 0) {
+            *lineLen = len;
+            return false;
+        }
+
+        if (ch == '\r') {
+            *lineLen = len;
+            return true;
+        }
+
+        lineBuf[len++] = (char)ch;
+        lineBuf[len] = '\0';
+
+        if (LinePixelWidth(lineBuf, len) > doc->maxPixelWidth - kLineWrapMargin) {
+            short breakAt = len - 1;
+
+            while (breakAt > 0 && lineBuf[breakAt - 1] != ' ') {
+                breakAt--;
+            }
+            if (breakAt == 0) {
+                breakAt = len - 1;
+            }
+
+            RewindPos(doc, pos, len, breakAt);
+            len = breakAt;
+            lineBuf[len] = '\0';
+            break;
+        }
+    }
+
+    *lineLen = len;
+    return true;
+}
+
+static void AppendLineToPage(ReaderDoc* doc, const char* line, short len) {
+    if (doc->pageTextLen + (size_t)len + 2 >= kPageBufSize) {
+        return;
+    }
+    if (doc->pageTextLen > 0) {
+        doc->pageText[doc->pageTextLen++] = '\r';
+    }
+    memcpy(doc->pageText + doc->pageTextLen, line, len);
+    doc->pageTextLen += (size_t)len;
+    doc->pageText[doc->pageTextLen] = '\0';
+}
+
+static long ReaderPaginateFrom(ReaderDoc* doc, long offset, Boolean storePage) {
+    char lineBuf[kLineBufSize];
+    short lineLen;
+    short filled;
+    long pos;
+    Boolean atEOF;
+    long contentLen;
+
+    pos = offset;
+    atEOF = false;
+    contentLen = ReaderContentLength(doc);
+
+    EnsureReaderFont();
+
+    if (storePage) {
+        if (!doc->pageText) {
+            return offset;
+        }
+        doc->pageTextLen = 0;
+        doc->pageText[0] = '\0';
+        doc->pageOffset = offset;
+    }
+
+    if (doc->fileRef > 0) {
+        if (SetFPos(doc->fileRef, fsFromStart, offset) != noErr) {
+            return offset;
+        }
+        InvalidateReadBuf(doc);
+    }
+
+    for (filled = 0; filled < doc->linesPerPage;) {
+        if (!ReaderReadOneLine(doc, &pos, lineBuf, &lineLen)) {
+            atEOF = true;
+            break;
+        }
+
+        TrimTrailingSpaces(lineBuf, &lineLen);
+        if (lineLen <= 0) {
+            /* Blank source lines must not consume a visible line slot. */
+            continue;
+        }
+
+        if (storePage) {
+            AppendLineToPage(doc, lineBuf, lineLen);
+        }
+        filled++;
+    }
+
+    if (storePage) {
+        doc->nextPageOffset = pos;
+        doc->canGoBack = doc->currentPage > 1;
+        doc->canGoForward = pos < contentLen;
+        if (!doc->canGoForward) {
+            if (doc->totalPages <= 0 || doc->currentPage > doc->totalPages) {
+                doc->totalPages = doc->currentPage;
+            }
+        }
+    }
+
+    if (pos < contentLen) {
+        return pos;
+    }
+    return contentLen;
+}
+
+long ReaderAdvancePage(ReaderDoc* doc, long offset) {
+    return ReaderPaginateFrom(doc, offset, false);
+}
+
+static void SetPageNumberField(ReaderDoc* doc, short page) {
+    char digits[8];
+    short len = 0;
+    short n = page;
+    short i;
+
+    if (!doc->pageNumTE) {
+        return;
+    }
+
+    if (n <= 0) {
+        n = 1;
+    }
+
+    {
+        char temp[8];
+        short tempLen = 0;
+        while (n > 0 && tempLen < 7) {
+            temp[tempLen++] = (char)('0' + (n % 10));
+            n /= 10;
+        }
+        for (i = tempLen - 1; i >= 0; i--) {
+            digits[len++] = temp[i];
+        }
+    }
+
+    TESetText(digits, len, doc->pageNumTE);
+}
+
+static short ReadPageNumberField(ReaderDoc* doc) {
+    TEHandle te = doc->pageNumTE;
+    Handle text;
+    long value;
+    long i;
+    short len;
+
+    if (!te) {
+        return 1;
+    }
+
+    len = (**te).teLength;
+    if (len <= 0) {
+        return doc->currentPage > 0 ? doc->currentPage : 1;
+    }
+
+    if (len > 8) {
+        len = 8;
+    }
+
+    text = (**te).hText;
+    if (!text) {
+        return 1;
+    }
+
+    HLock(text);
+    value = 0;
+    for (i = 0; i < len; i++) {
+        char c = (*text)[i];
+        if (c >= '0' && c <= '9') {
+            value = value * 10 + (c - '0');
+            if (value > 30000) {
+                break;
+            }
+        }
+    }
+    HUnlock(text);
+
+    if (value < 1) {
+        value = 1;
+    }
+    return (short)value;
+}
+
+static void UpdatePageNavDisplay(ReaderDoc* doc) {
+    SetPageNumberField(doc, doc->currentPage);
+}
+
+static short DisplayTotalPages(ReaderDoc* doc) {
+    if (BookIndexIsOpen(doc) && doc->bookPageCount > 0) {
+        return (short)doc->bookPageCount;
+    }
+    if (doc->totalPages > 0) {
+        return doc->totalPages;
+    }
+    if (!doc->hasFile) {
+        return 1;
+    }
+    return 0;
+}
+
+static short FormatPageTotalLabel(ReaderDoc* doc, char* buf, short bufSize) {
+    short len = 0;
+    short maxLen = (short)(bufSize - 1);
+    short total = DisplayTotalPages(doc);
+
+    if (len < maxLen) {
+        buf[len++] = ' ';
+    }
+    if (len < maxLen) {
+        buf[len++] = '/';
+    }
+    if (len < maxLen) {
+        buf[len++] = ' ';
+    }
+
+    if (total > 0) {
+        AppendDecimal(buf, &len, maxLen, total);
+    } else if (len < maxLen) {
+        buf[len++] = '?';
+    }
+
+    buf[len] = '\0';
+    return len;
+}
+
+static void DrawPageTotalLabel(ReaderDoc* doc) {
+    char label[16];
+    short len;
+
+    if (!doc) {
+        return;
+    }
+
+    len = FormatPageTotalLabel(doc, label, (short)sizeof(label));
+    if (len <= 0) {
+        return;
+    }
+
+    EraseRect(&doc->pageTotalLabelRect);
+    TextFont(3);
+    TextSize(12);
+    TETextBox(label, len, &doc->pageTotalLabelRect, teJustLeft);
+}
+
+static Boolean BuildPageAtOffset(ReaderDoc* doc, long offset) {
+    if (!doc->pageText) {
+        return false;
+    }
+    (void)ReaderPaginateFrom(doc, offset, true);
+    return true;
+}
+
+static long ScanToPageOffset(ReaderDoc* doc, short targetPage) {
+    long pos = 0;
+    short page;
+
+    if (targetPage < 1) {
+        return 0;
+    }
+
+    for (page = 1; page < targetPage; page++) {
+        pos = ReaderAdvancePage(doc, pos);
+        if ((page & 3) == 0) {
+            SystemTask();
+        }
+    }
+    return pos;
+}
+
+static void UpdatePageButtons(ReaderDoc* doc) {
+    if (doc->btnPrev) {
+        HiliteControl(doc->btnPrev, doc->canGoBack ? 0 : 255);
+    }
+    if (doc->btnNext) {
+        HiliteControl(doc->btnNext, doc->canGoForward ? 0 : 255);
+    }
+}
+
+static void TextBoxRect(WindowRef w, Rect* box) {
+    *box = w->portRect;
+    InsetRect(box, kContentMargin, kContentMargin);
+    box->bottom -= kNavBarHeight - kTextBoxExtraHeight;
+}
+
+static void FillScreenWindow(WindowRef w) {
+    Rect screen = qd.screenBits.bounds;
+    Rect bounds;
+
+    bounds.left = screen.left;
+    bounds.top = screen.top + kMenuBarHeight;
+    bounds.right = screen.right;
+    bounds.bottom = screen.bottom;
+
+    MoveWindow(w, bounds.left, bounds.top, false);
+    SizeWindow(w, bounds.right - bounds.left, bounds.bottom - bounds.top, true);
+}
+
+static void LayoutReaderWindow(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+    Rect box;
+    Rect navBar;
+    Rect prevRect;
+    Rect nextRect;
+    Rect goRect;
+    short navLeft;
+    FontInfo fontInfo;
+
+    if (!doc) {
+        return;
+    }
+
+    TextBoxRect(w, &box);
+
+    EnsureReaderFont();
+    GetFontInfo(&fontInfo);
+    doc->lineHeight = fontInfo.ascent + fontInfo.descent + fontInfo.leading;
+    if (doc->lineHeight < 10) {
+        doc->lineHeight = 12;
+    }
+    {
+        short innerHeight = box.bottom - box.top - (kTextInset * 2);
+        doc->linesPerPage = innerHeight / doc->lineHeight;
+        if (doc->linesPerPage < 4) {
+            doc->linesPerPage = 4;
+        }
+    }
+    doc->maxPixelWidth = (box.right - box.left) - (kTextInset * 2);
+
+    doc->chapterStatusRect = box;
+    doc->chapterStatusRect.bottom = (short)(doc->chapterStatusRect.top + doc->lineHeight + 4);
+    box.top = doc->chapterStatusRect.bottom + 2;
+    doc->textBox = box;
+
+    if (doc->bookIndexRef > 0
+        && (doc->linesPerPage != doc->bookLinesPerPage || doc->lineHeight != doc->bookLineHeight
+            || doc->maxPixelWidth != doc->bookMaxPixelWidth)) {
+        BookIndexClose(doc);
+        doc->totalPages = 0;
+    }
+
+    navBar.left = box.left;
+    navBar.right = box.right;
+    navBar.top = box.bottom + 4;
+    navBar.bottom = w->portRect.bottom - kContentMargin;
+
+    {
+        short navTop = navBar.top + 10;
+        short navBottom = navTop + kButtonHeight;
+        short totalWidth = kButtonWidth + kNavItemGap + kPageEditWidth + kNavItemGap
+            + kPageTotalLabelWidth + kNavItemGap + kGoButtonWidth + kNavItemGap + kButtonWidth;
+
+        navLeft = navBar.left + ((navBar.right - navBar.left) - totalWidth) / 2;
+
+        SetRect(&prevRect, navLeft, navTop, navLeft + kButtonWidth, navBottom);
+        navLeft = prevRect.right + kNavItemGap;
+
+        SetRect(&doc->pageNumEditRect,
+            navLeft,
+            navTop,
+            navLeft + kPageEditWidth,
+            navTop + kPageEditHeight);
+        navLeft = doc->pageNumEditRect.right + kNavItemGap;
+
+        SetRect(&doc->pageTotalLabelRect,
+            navLeft,
+            navTop,
+            navLeft + kPageTotalLabelWidth,
+            navTop + kPageEditHeight);
+        navLeft = doc->pageTotalLabelRect.right + kNavItemGap;
+
+        SetRect(&goRect, navLeft, navTop, navLeft + kGoButtonWidth, navBottom);
+        navLeft = goRect.right + kNavItemGap;
+
+        SetRect(&nextRect, navLeft, navTop, navLeft + kButtonWidth, navBottom);
+    }
+
+    if (doc->btnPrev) {
+        MoveControl(doc->btnPrev, prevRect.left, prevRect.top);
+        SizeControl(doc->btnPrev, prevRect.right - prevRect.left, prevRect.bottom - prevRect.top);
+    } else {
+        doc->btnPrev = NewControl(w, &prevRect, "\p", true, 0, 0, 0, pushButProc, 0);
+        SetButtonTitle(doc->btnPrev, "Page Left");
+    }
+
+    if (doc->btnNext) {
+        MoveControl(doc->btnNext, nextRect.left, nextRect.top);
+        SizeControl(doc->btnNext, nextRect.right - nextRect.left, nextRect.bottom - nextRect.top);
+    } else {
+        doc->btnNext = NewControl(w, &nextRect, "\p", true, 0, 0, 0, pushButProc, 0);
+        SetButtonTitle(doc->btnNext, "Page Right");
+    }
+
+    if (doc->btnGoTo) {
+        MoveControl(doc->btnGoTo, goRect.left, goRect.top);
+        SizeControl(doc->btnGoTo, goRect.right - goRect.left, goRect.bottom - goRect.top);
+    } else {
+        doc->btnGoTo = NewControl(w, &goRect, "\p", true, 0, 0, 0, pushButProc, 0);
+        SetButtonTitle(doc->btnGoTo, "Go To Page");
+    }
+
+    if (doc->pageNumTE) {
+        (**doc->pageNumTE).destRect = doc->pageNumEditRect;
+        (**doc->pageNumTE).viewRect = doc->pageNumEditRect;
+    } else {
+        Rect teRect = doc->pageNumEditRect;
+        doc->pageNumTE = TENew(&teRect, &teRect);
+        if (doc->pageNumTE) {
+            (**doc->pageNumTE).txFont = 3;
+            (**doc->pageNumTE).txSize = 12;
+            TESetText((Ptr) "1", 1, doc->pageNumTE);
+        }
+    }
+
+    if ((doc->hasFile || doc->memText) && !BookIndexBlocksUI(doc)) {
+        if (doc->currentPage < 1) {
+            doc->currentPage = 1;
+        }
+        BuildPageAtOffset(doc, doc->pageOffset);
+        UpdatePageNavDisplay(doc);
+        UpdatePageButtons(doc);
+    }
+}
+
+static void AppendDecimal(char* buf, short* len, short maxLen, short value) {
+    char digits[8];
+    short dlen = 0;
+    short n = value;
+    short i;
+
+    if (n <= 0) {
+        if (*len < maxLen) {
+            buf[(*len)++] = '0';
+        }
+        return;
+    }
+
+    while (n > 0 && dlen < 7) {
+        digits[dlen++] = (char)('0' + (n % 10));
+        n /= 10;
+    }
+    for (i = dlen - 1; i >= 0; i--) {
+        if (*len < maxLen) {
+            buf[(*len)++] = digits[i];
+        }
+    }
+}
+
+static void BuildIndexStatusMessage(ReaderDoc* doc, char* buf, short bufSize) {
+    short len = 0;
+    short maxLen = (short)(bufSize - 1);
+    const char* line1 = "Preparing book...";
+    const char* line2;
+    short line2Len;
+    short i;
+
+    for (i = 0; line1[i] != '\0' && len < maxLen; i++) {
+        buf[len++] = line1[i];
+    }
+    if (len + 2 <= maxLen) {
+        buf[len++] = '\r';
+        buf[len++] = '\r';
+    }
+
+    if (BookIndexIsBuilding(doc) && doc->bookBuildPage > 0) {
+        const char* prefix = "Indexing page ";
+        for (i = 0; prefix[i] != '\0' && len < maxLen; i++) {
+            buf[len++] = prefix[i];
+        }
+        AppendDecimal(buf, &len, maxLen, doc->bookBuildPage);
+        line2 = "...";
+        line2Len = 3;
+    } else {
+        line2 = "Starting index...";
+        line2Len = 16;
+    }
+
+    for (i = 0; i < line2Len && len < maxLen; i++) {
+        buf[len++] = line2[i];
+    }
+    if (len + 2 <= maxLen) {
+        buf[len++] = '\r';
+        buf[len++] = '\r';
+    }
+
+    line2 = "Please wait.";
+    for (i = 0; line2[i] != '\0' && len < maxLen; i++) {
+        buf[len++] = line2[i];
+    }
+    buf[len] = '\0';
+}
+
+static void DrawReaderText(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+    Rect inner;
+    char statusMsg[128];
+
+    if (!doc || !doc->pageText) {
+        return;
+    }
+
+    FrameRect(&doc->textBox);
+    inner = doc->textBox;
+    InsetRect(&inner, kTextInset, kTextInset);
+    EraseRect(&inner);
+
+    TextFont(3);
+    TextSize(12);
+
+    if (BookIndexBlocksUI(doc) && doc->hasFile) {
+        BuildIndexStatusMessage(doc, statusMsg, (short)sizeof(statusMsg));
+        TETextBox(statusMsg, (long)strlen(statusMsg), &inner, teJustLeft);
+    } else if (doc->pageTextLen > 0) {
+        FontInfo fontInfo;
+        char* cursor;
+        char* end;
+        short line;
+
+        GetFontInfo(&fontInfo);
+        ClipRect(&inner);
+        cursor = doc->pageText;
+        end = doc->pageText + doc->pageTextLen;
+        for (line = 0; line < doc->linesPerPage && cursor < end; line++) {
+            char* lineStart = cursor;
+            char* lineEnd = cursor;
+
+            while (lineEnd < end && *lineEnd != '\r') {
+                lineEnd++;
+            }
+            if (lineEnd > lineStart) {
+                MoveTo(inner.left,
+                    inner.top + (line * doc->lineHeight) + fontInfo.ascent);
+                DrawText(lineStart, 0, (short)(lineEnd - lineStart));
+            }
+            if (lineEnd < end && *lineEnd == '\r') {
+                lineEnd++;
+            }
+            cursor = lineEnd;
+        }
+        ClipRect(&w->portRect);
+    }
+}
+
+static void DrawReaderNav(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+
+    if (!doc) {
+        return;
+    }
+
+    if (doc->pageNumTE) {
+        FrameRect(&doc->pageNumEditRect);
+        TEUpdate(&doc->pageNumEditRect, doc->pageNumTE);
+    }
+    DrawPageTotalLabel(doc);
+}
+
+static void DrawChapterStatus(ReaderDoc* doc) {
+    char buf[128];
+    short len = 0;
+    short i;
+    short ch;
+
+    if (!doc || !doc->hasFile || doc->chapterCount <= 0) {
+        return;
+    }
+
+    ch = ReaderChapterForPage(doc, doc->currentPage);
+    if (ch < 1) {
+        ch = 1;
+    }
+    if (ch > doc->chapterCount) {
+        ch = doc->chapterCount;
+    }
+
+    buf[len++] = 'C';
+    buf[len++] = 'h';
+    buf[len++] = ' ';
+    AppendDecimal(buf, &len, (short)sizeof(buf), ch);
+    if (len < (short)sizeof(buf) - 2) {
+        buf[len++] = ':';
+        buf[len++] = ' ';
+    }
+    for (i = 0; i < doc->chapters[ch - 1].titleLen && len < (short)sizeof(buf) - 1; i++) {
+        buf[len++] = doc->chapters[ch - 1].title[i];
+    }
+    buf[len] = '\0';
+
+    MoveTo(doc->chapterStatusRect.left + kTextInset, doc->chapterStatusRect.top + doc->lineHeight);
+    DrawText(buf, 0, len);
+}
+
+static void DrawReaderPage(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+    if (doc) {
+        DrawChapterStatus(doc);
+    }
+    DrawReaderText(w);
+    DrawReaderNav(w);
+}
+
+static void RedrawAfterPageChange(WindowRef w) {
+    SetPort(w);
+    DrawReaderText(w);
+    DrawReaderNav(w);
+}
+
+void ReaderOnBuildProgress(WindowRef w, ReaderDoc* doc) {
+    if (!w || !doc) {
+        return;
+    }
+    SetPort(w);
+    if (doc->bookBuildPage > 0) {
+        SetPageNumberField(doc, doc->bookBuildPage);
+    }
+    DrawReaderPage(w);
+    if (doc->btnPrev) {
+        Draw1Control(doc->btnPrev);
+    }
+    if (doc->btnNext) {
+        Draw1Control(doc->btnNext);
+    }
+    if (doc->btnGoTo) {
+        Draw1Control(doc->btnGoTo);
+    }
+}
+
+static void DeactivatePageField(ReaderDoc* doc) {
+    if (doc && doc->pageNumTE && (**doc->pageNumTE).active) {
+        TEDeactivate(doc->pageNumTE);
+    }
+}
+
+static Boolean PageFieldActive(ReaderDoc* doc) {
+    return doc && doc->pageNumTE && (**doc->pageNumTE).active;
+}
+
+static void InvalidateReader(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+    if (!doc) {
+        return;
+    }
+    InvalRect(&w->portRect);
+}
+
+static void GoToPageNumber(WindowRef w, short pageNum) {
+    ReaderDoc* doc = GetDoc(w);
+    long offset;
+
+    if (!doc) {
+        return;
+    }
+
+    if (pageNum < 1) {
+        pageNum = 1;
+    }
+    if (doc->totalPages > 0 && pageNum > doc->totalPages) {
+        pageNum = doc->totalPages;
+    }
+    if (pageNum == doc->currentPage) {
+        return;
+    }
+
+    doc->pageHistoryCount = 0;
+
+    if (BookIndexIsOpen(doc)) {
+        if (pageNum > doc->bookPageCount) {
+            pageNum = (short)doc->bookPageCount;
+        }
+        if (BookIndexPageOffset(doc, pageNum, &offset) == noErr) {
+            doc->currentPage = pageNum;
+        } else {
+            offset = ScanToPageOffset(doc, pageNum);
+            doc->currentPage = pageNum;
+        }
+    } else if (pageNum > doc->currentPage) {
+        offset = doc->pageOffset;
+        while (doc->currentPage < pageNum) {
+            offset = ReaderAdvancePage(doc, offset);
+            doc->currentPage++;
+            if (offset >= ReaderContentLength(doc)) {
+                break;
+            }
+            SystemTask();
+        }
+    } else {
+        offset = ScanToPageOffset(doc, pageNum);
+        doc->currentPage = pageNum;
+    }
+
+    BuildPageAtOffset(doc, offset);
+    UpdatePageNavDisplay(doc);
+    UpdatePageButtons(doc);
+    ReaderUpdateChapterStatus(w, doc);
+    RedrawAfterPageChange(w);
+    if (doc->hasFile) {
+        ReaderStateSave(doc);
+    }
+}
+
+static void TurnPage(WindowRef w, short direction) {
+    ReaderDoc* doc = GetDoc(w);
+
+    if (!doc) {
+        return;
+    }
+
+    if (direction > 0) {
+        long offset;
+
+        if (!doc->canGoForward) {
+            return;
+        }
+        if (doc->pageHistoryCount < kPageHistoryMax) {
+            doc->pageHistory[doc->pageHistoryCount] = doc->pageOffset;
+            doc->pageHistoryPage[doc->pageHistoryCount] = doc->currentPage;
+            doc->pageHistoryCount++;
+        }
+        doc->currentPage++;
+        if (BookIndexIsOpen(doc)
+            && BookIndexPageOffset(doc, doc->currentPage, &offset) == noErr) {
+            BuildPageAtOffset(doc, offset);
+        } else {
+            BuildPageAtOffset(doc, doc->nextPageOffset);
+        }
+    } else {
+        long offset;
+
+        if (doc->currentPage <= 1) {
+            return;
+        }
+
+        if (doc->pageHistoryCount > 0) {
+            doc->pageHistoryCount--;
+            doc->currentPage = doc->pageHistoryPage[doc->pageHistoryCount];
+            BuildPageAtOffset(doc, doc->pageHistory[doc->pageHistoryCount]);
+        } else {
+            doc->currentPage--;
+            if (BookIndexIsOpen(doc)
+                && BookIndexPageOffset(doc, doc->currentPage, &offset) == noErr) {
+                BuildPageAtOffset(doc, offset);
+            } else {
+                offset = ScanToPageOffset(doc, doc->currentPage);
+                BuildPageAtOffset(doc, offset);
+            }
+        }
+    }
+
+    ReaderUpdateChapterStatus(w, doc);
+    UpdatePageNavDisplay(doc);
+    UpdatePageButtons(doc);
+    RedrawAfterPageChange(w);
+    if (doc->hasFile) {
+        ReaderStateSave(doc);
+    }
+}
+
+short ReaderChapterForPage(const ReaderDoc* doc, short page) {
+    short ch;
+
+    if (!doc || page < 1 || doc->chapterCount <= 0) {
+        return 1;
+    }
+
+    for (ch = doc->chapterCount; ch >= 1; ch--) {
+        if (doc->chapters[ch - 1].firstPage > 0 && page >= doc->chapters[ch - 1].firstPage) {
+            return ch;
+        }
+    }
+    return 1;
+}
+
+void ReaderUpdateChapterStatus(WindowRef w, ReaderDoc* doc) {
+    if (!doc) {
+        return;
+    }
+    doc->currentChapter = ReaderChapterForPage(doc, doc->currentPage);
+    if (w && !EmptyRect(&doc->chapterStatusRect)) {
+        InvalRect(&doc->chapterStatusRect);
+    }
+}
+
+static WindowRef NewReaderWindow(ConstStr255Param title) {
+    WindowRef w = GetNewWindow(128, NULL, (WindowPtr)-1);
+    ReaderDoc* doc;
+
+    if (!w) {
+        return NULL;
+    }
+
+    doc = (ReaderDoc*)NewPtrClear(sizeof(ReaderDoc));
+    if (!doc) {
+        DisposeWindow(w);
+        return NULL;
+    }
+
+    doc->pageText = (char*)NewPtrClear(kPageBufSize);
+    if (!doc->pageText) {
+        DisposePtr((Ptr)doc);
+        DisposeWindow(w);
+        return NULL;
+    }
+
+    SetWTitle(w, title);
+    SetWRefCon(w, (long)doc);
+    FillScreenWindow(w);
+    SetPort(w);
+    LayoutReaderWindow(w);
+    ShowWindow(w);
+    return w;
+}
+
+static void SetWelcomeText(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+    static const char welcome[] =
+        "hmls EPUB Reader\r\r"
+        "Select Open EPUB from the File menu to read an ebook.\r\r"
+        "Each screen is one page. Use Page Left and Page Right, "
+        "arrow keys, or enter a page number and Go To Page.\r\r"
+        "Use the Chapters menu to jump to a chapter.\r\r"
+        "A .book text file and .pgdata page index are created "
+        "beside the EPUB for fast reading.";
+
+    if (!doc) {
+        return;
+    }
+
+    doc->hasFile = false;
+    doc->memText = welcome;
+    doc->memLen = (long)strlen(welcome);
+    doc->fileLen = doc->memLen;
+    doc->pageHistoryCount = 0;
+    doc->pageOffset = 0;
+    doc->currentPage = 1;
+    doc->totalPages = 0;
+    BuildPageAtOffset(doc, 0);
+    UpdatePageNavDisplay(doc);
+    UpdatePageButtons(doc);
+    InvalidateReader(w);
+}
+
+static OSErr OpenFromSFReply(const SFReply* reply, short* refNum, long* fileLen) {
+    OSErr err;
+    WDPBRec wd;
+
+    *refNum = 0;
+    *fileLen = 0;
+
+    /*
+     * Open immediately while SFGetFile still has the correct volume and
+     * working directory. Do not call SetVol (resets dir to volume root).
+     */
+    err = OpenDF(reply->fName, reply->vRefNum, refNum);
+    if (err == noErr) {
+        return GetEOF(*refNum, fileLen);
+    }
+
+    err = FSOpen(reply->fName, reply->vRefNum, refNum);
+    if (err == noErr) {
+        return GetEOF(*refNum, fileLen);
+    }
+
+    memset(&wd, 0, sizeof(wd));
+    wd.ioNamePtr = NULL;
+    wd.ioWDIndex = 0;
+    wd.ioVRefNum = reply->vRefNum;
+    if (PBGetWDInfoSync(&wd) == noErr) {
+        err = HOpenDF(wd.ioWDVRefNum, wd.ioWDDirID, reply->fName, fsRdPerm, refNum);
+        if (err == noErr) {
+            return GetEOF(*refNum, fileLen);
+        }
+        err = HOpenDF(reply->vRefNum, wd.ioWDDirID, reply->fName, fsRdPerm, refNum);
+        if (err == noErr) {
+            return GetEOF(*refNum, fileLen);
+        }
+    }
+
+    return err;
+}
+
+static Boolean FileRefLooksLikeBookIndex(short refNum) {
+    unsigned char hdr[8];
+    long count = 8;
+    long eof;
+    OSErr err;
+
+    if (refNum <= 0) {
+        return false;
+    }
+
+    if (GetEOF(refNum, &eof) != noErr) {
+        return false;
+    }
+    /* Real books are much larger than an index file. */
+    if (eof > 65536) {
+        return false;
+    }
+
+    err = SetFPos(refNum, fsFromStart, 0);
+    if (err != noErr) {
+        return false;
+    }
+
+    err = FSRead(refNum, &count, (Ptr)hdr);
+    SetFPos(refNum, fsFromStart, 0);
+
+    if (err != noErr || count < 8) {
+        return false;
+    }
+
+    return hdr[0] == 'B' && hdr[1] == 'O' && hdr[2] == 'O' && hdr[3] == 'K' && hdr[4] == 0 && hdr[5] <= 3;
+}
+
+static void AttachBookToWindow(WindowRef w, short refNum, long fileLen, ConstStr255Param title,
+    const SFReply* reply) {
+    ReaderDoc* doc = GetDoc(w);
+
+    if (!doc) {
+        if (refNum > 0) {
+            FSClose(refNum);
+        }
+        return;
+    }
+
+    ReaderReleaseBookFiles(doc, true);
+
+    SetWTitle(w, title);
+    doc->fileRef = refNum;
+    doc->memText = NULL;
+    doc->memLen = 0;
+    doc->hasFile = true;
+    doc->fileLen = fileLen;
+    doc->pageHistoryCount = 0;
+    doc->pageOffset = 0;
+    doc->nextPageOffset = 0;
+    doc->currentPage = 1;
+    doc->totalPages = 0;
+    doc->savedLastPage = 1;
+    doc->savedLastChapter = 1;
+    doc->currentChapter = 1;
+    doc->bookmarkCount = 0;
+    doc->bookIndexPending = false;
+    InvalidateReadBuf(doc);
+
+    SetPort(w);
+    LayoutReaderWindow(w);
+
+    if (reply) {
+        doc->bookAwaitingDisplay = true;
+        doc->bookIndexPending = true;
+        doc->bookSourceVRefNum = reply->vRefNum;
+        memcpy(doc->bookSourceName, reply->fName, reply->fName[0] + 1);
+        ReaderStateLoad(doc);
+        RebuildBookmarkMenu(doc);
+        RebuildChapterMenu(doc);
+        ForceRedrawWindow(w);
+    } else if (doc->currentPage < 1) {
+        doc->currentPage = 1;
+    }
+
+    if (!reply) {
+        BuildPageAtOffset(doc, doc->pageOffset);
+        UpdatePageNavDisplay(doc);
+        UpdatePageButtons(doc);
+        ForceRedrawWindow(w);
+    }
+}
+
+void DoCloseWindow(WindowRef w) {
+    if (!w) {
+        return;
+    }
+
+    if (GetWindowKind(w) < 0) {
+        CloseDeskAcc(GetWindowKind(w));
+        return;
+    }
+
+    if (w == gMainWindow) {
+        ReaderDoc* doc = GetDoc(w);
+        if (doc) {
+            ReaderReleaseBookFiles(doc, true);
+            RebuildBookmarkMenu(doc);
+            RebuildChapterMenu(doc);
+        }
+        SetWelcomeText(gMainWindow);
+        return;
+    }
+
+    {
+        ReaderDoc* doc = GetDoc(w);
+        if (doc) {
+            ReaderReleaseBookFiles(doc, true);
+            if (doc->pageText) {
+                DisposePtr((Ptr)doc->pageText);
+            }
+            if (doc->btnPrev) {
+                DisposeControl(doc->btnPrev);
+            }
+            if (doc->btnNext) {
+                DisposeControl(doc->btnNext);
+            }
+            if (doc->btnGoTo) {
+                DisposeControl(doc->btnGoTo);
+            }
+            if (doc->pageNumTE) {
+                TEDispose(doc->pageNumTE);
+            }
+            DisposePtr((Ptr)doc);
+        }
+        DisposeWindow(w);
+    }
+}
+
+static void ShowOpenError(short err) {
+    Str255 msg;
+    const char* text;
+
+    if (err == fnfErr) {
+        text = "Could not read the EPUB file.";
+    } else if (err == paramErr) {
+        text = "No readable chapters in this EPUB.";
+    } else if (err == memFullErr) {
+        text = "Not enough memory to import.";
+    } else {
+        text = "Could not import this EPUB.";
+    }
+    msg[0] = (unsigned char)strlen(text);
+    memcpy(msg + 1, text, msg[0]);
+    ParamText(msg, "\p", "\p", "\p");
+    Alert(128, NULL);
+}
+
+void DoOpenFile(void) {
+    SFReply reply;
+    SFReply bookReply;
+    Point where = {80, 50};
+    short refNum;
+    long fileLen;
+    OSErr err;
+    Str255 bookName;
+    ReaderDoc* doc;
+
+    SFGetFile(where, "\p", NewFileFilterUPP(EpubOnlyFileFilter), -1, NULL, NULL, &reply);
+
+    if (!gMainWindow) {
+        return;
+    }
+
+    doc = GetDoc(gMainWindow);
+    if (!reply.good) {
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
+        }
+        return;
+    }
+
+    if (!EpubNameIsEpub(reply.fName)) {
+        SysBeep(1);
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
+        }
+        return;
+    }
+
+    err = EpubImportFromReply(&reply, doc);
+    if (err != noErr) {
+        SysBeep(1);
+        ShowOpenError(err);
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
+        }
+        return;
+    }
+
+    bookReply = reply;
+    memcpy(bookName, doc->bookSourceName, doc->bookSourceName[0] + 1);
+    memcpy(bookReply.fName, bookName, bookName[0] + 1);
+
+    err = OpenFromSFReply(&bookReply, &refNum, &fileLen);
+    if (err != noErr) {
+        SysBeep(1);
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
+        }
+        return;
+    }
+
+    if (FileRefLooksLikeBookIndex(refNum)) {
+        FSClose(refNum);
+        SysBeep(1);
+        if (doc && !doc->hasFile) {
+            SetWelcomeText(gMainWindow);
+        }
+        return;
+    }
+
+    SelectWindow(gMainWindow);
+    AttachBookToWindow(gMainWindow, refNum, fileLen, bookName, &bookReply);
+}
+
+static Boolean ConfirmYesNoAlert(short alertID) {
+    return Alert(alertID, NULL) == kAlertButtonYes;
+}
+
+void AdjustMenus(void) {
+    WindowRef w = FrontWindow();
+    MenuRef fileMenu = GetMenu(kMenuFile);
+    MenuRef bookmarkMenu = GetMenu(kMenuBookmarks);
+    MenuRef optionsMenu = GetMenu(kMenuOptions);
+    ReaderDoc* doc = (w && GetWindowKind(w) >= 0) ? GetDoc(w) : NULL;
+    Boolean hasBook = doc && doc->hasFile && !BookIndexBlocksUI(doc);
+
+    if (w) {
+        EnableItem(fileMenu, kItemClose);
+    } else {
+        DisableItem(fileMenu, kItemClose);
+    }
+
+    if (bookmarkMenu) {
+        if (hasBook) {
+            EnableItem(bookmarkMenu, kItemAddBookmark);
+            if (ReaderStateHasBookmark(doc, doc->currentPage)) {
+                EnableItem(bookmarkMenu, kItemDeleteBookmark);
+            } else {
+                DisableItem(bookmarkMenu, kItemDeleteBookmark);
+            }
+        } else {
+            DisableItem(bookmarkMenu, kItemAddBookmark);
+            DisableItem(bookmarkMenu, kItemDeleteBookmark);
+        }
+    }
+
+    {
+        MenuRef chapterMenu = GetMenu(kMenuChapters);
+        if (chapterMenu) {
+            if (hasBook && doc->chapterCount > 0) {
+                EnableItem(chapterMenu, kItemGoToChapter);
+            } else {
+                DisableItem(chapterMenu, kItemGoToChapter);
+            }
+        }
+    }
+
+    if (optionsMenu) {
+        if (hasBook) {
+            EnableItem(optionsMenu, kItemRegenerateBook);
+            EnableItem(optionsMenu, kItemDeleteReadFile);
+        } else {
+            DisableItem(optionsMenu, kItemRegenerateBook);
+            DisableItem(optionsMenu, kItemDeleteReadFile);
+        }
+    }
+
+    MenuRef editMenu = GetMenu(kMenuEdit);
+    if (w && GetWindowKind(w) < 0) {
+        EnableItem(editMenu, 1);
+        EnableItem(editMenu, 3);
+        EnableItem(editMenu, 4);
+        EnableItem(editMenu, 5);
+        EnableItem(editMenu, 6);
+    } else {
+        DisableItem(editMenu, 1);
+        DisableItem(editMenu, 3);
+        DisableItem(editMenu, 4);
+        DisableItem(editMenu, 5);
+        DisableItem(editMenu, 6);
+    }
+}
+
+void DoMenuCommand(long menuCommand) {
+    short menuID = HiWord(menuCommand);
+    short menuItem = LoWord(menuCommand);
+    Str255 str;
+
+    if (menuID == kMenuApple) {
+        if (menuItem == kItemAbout) {
+            NoteAlert(128, NULL);
+        } else {
+            GetMenuItemText(GetMenu(kMenuApple), menuItem, str);
+            OpenDeskAcc(str);
+        }
+    } else if (menuID == kMenuFile) {
+        switch (menuItem) {
+            case kItemOpen:
+                DoOpenFile();
+                break;
+            case kItemClose:
+                DoCloseWindow(FrontWindow());
+                break;
+            case kItemQuit: {
+                ReaderDoc* quitDoc = gMainWindow ? GetDoc(gMainWindow) : NULL;
+                if (quitDoc) {
+                    ReaderReleaseBookFiles(quitDoc, true);
+                }
+                ExitToShell();
+                break;
+            }
+        }
+    } else if (menuID == kMenuBookmarks) {
+        WindowRef w = FrontWindow();
+        ReaderDoc* doc = (w && GetWindowKind(w) >= 0) ? GetDoc(w) : NULL;
+
+        if (!doc || !doc->hasFile) {
+            HiliteMenu(0);
+            return;
+        }
+
+        switch (menuItem) {
+            case kItemAddBookmark:
+                if (ReaderStateAddBookmark(doc, doc->currentPage) == memFullErr) {
+                    SysBeep(1);
+                }
+                break;
+            case kItemDeleteBookmark:
+                if (ReaderStateDeleteBookmark(doc, doc->currentPage) != noErr) {
+                    SysBeep(1);
+                }
+                break;
+            default:
+                if (menuItem >= kItemBookmarkFirst) {
+                    short index = (short)(menuItem - kItemBookmarkFirst);
+                    if (index >= 0 && index < doc->bookmarkCount) {
+                        GoToPageNumber(w, doc->bookmarkPages[index]);
+                    }
+                }
+                break;
+        }
+    } else if (menuID == kMenuChapters) {
+        WindowRef w = FrontWindow();
+        ReaderDoc* doc = (w && GetWindowKind(w) >= 0) ? GetDoc(w) : NULL;
+
+        if (!doc || !doc->hasFile) {
+            HiliteMenu(0);
+            return;
+        }
+
+        if (menuItem >= kItemChapterFirst) {
+            short index = (short)(menuItem - kItemChapterFirst);
+            short page;
+
+            if (index >= 0 && index < doc->chapterCount
+                && BookIndexChapterFirstPage(doc, (short)(index + 1), &page) == noErr) {
+                GoToPageNumber(w, page);
+            }
+        }
+    } else if (menuID == kMenuOptions) {
+        WindowRef w = FrontWindow();
+        ReaderDoc* doc = (w && GetWindowKind(w) >= 0) ? GetDoc(w) : NULL;
+
+        if (!doc || !doc->hasFile) {
+            HiliteMenu(0);
+            return;
+        }
+
+        switch (menuItem) {
+            case kItemRegenerateBook:
+                if (ConfirmYesNoAlert(kConfirmRegenerateAlert)
+                    && BookIndexRegenerate(w, doc) != noErr) {
+                    SysBeep(1);
+                }
+                break;
+            case kItemDeleteReadFile:
+                if (ConfirmYesNoAlert(kConfirmDeleteReadAlert)) {
+                    if (ReaderStateDeleteFile(doc) == noErr) {
+                        doc->pageHistoryCount = 0;
+                        doc->currentPage = 0;
+                        GoToPageNumber(w, 1);
+                    } else {
+                        SysBeep(1);
+                    }
+                }
+                break;
+        }
+    } else if (menuID == kMenuEdit) {
+        if (!SystemEdit(menuItem - 1)) {
+            /* Edit command not handled by Desk Accessory */
+        }
+    }
+
+    HiliteMenu(0);
+}
+
+void ReaderOnIndexReady(WindowRef w, ReaderDoc* doc) {
+    short page;
+
+    if (!doc || !w) {
+        return;
+    }
+
+    doc->bookAwaitingDisplay = false;
+    if (!doc->hasFile) {
+        return;
+    }
+
+    page = doc->savedLastPage;
+    if (doc->savedLastChapter >= 1 && doc->savedLastChapter <= doc->chapterCount) {
+        short chPage;
+        if (BookIndexChapterFirstPage(doc, doc->savedLastChapter, &chPage) == noErr) {
+            page = chPage;
+        }
+    }
+    if (page < 1) {
+        page = 1;
+    }
+    if (doc->bookPageCount > 0 && page > doc->bookPageCount) {
+        page = (short)doc->bookPageCount;
+    }
+
+    doc->currentPage = 0;
+    GoToPageNumber(w, page);
+    RebuildBookmarkMenu(doc);
+    RebuildChapterMenu(doc);
+    ReaderUpdateChapterStatus(w, doc);
+}
+
+static void ForceRedrawWindow(WindowRef w) {
+    ReaderDoc* doc = GetDoc(w);
+
+    if (!doc) {
+        return;
+    }
+
+    SetPort(w);
+    DrawReaderPage(w);
+    if (doc->btnPrev) {
+        Draw1Control(doc->btnPrev);
+    }
+    if (doc->btnNext) {
+        Draw1Control(doc->btnNext);
+    }
+    if (doc->btnGoTo) {
+        Draw1Control(doc->btnGoTo);
+    }
+}
+
+void DoUpdate(WindowRef w) {
+    ReaderDoc* doc;
+
+    if (GetWindowKind(w) < 0) {
+        return;
+    }
+
+    SetPort(w);
+    BeginUpdate(w);
+    EraseRgn(((GrafPtr)w)->visRgn);
+
+    doc = GetDoc(w);
+    if (doc) {
+        DrawReaderPage(w);
+        if (doc->btnPrev) {
+            Draw1Control(doc->btnPrev);
+        }
+        if (doc->btnNext) {
+            Draw1Control(doc->btnNext);
+        }
+        if (doc->btnGoTo) {
+            Draw1Control(doc->btnGoTo);
+        }
+    }
+
+    EndUpdate(w);
+}
+
+static void DoContentClick(WindowRef w, Point localPt) {
+    ReaderDoc* doc = GetDoc(w);
+    ControlHandle control;
+    short part;
+
+    if (!doc || BookIndexBlocksUI(doc)) {
+        return;
+    }
+
+    if (doc->pageNumTE && PtInRect(localPt, &doc->pageNumEditRect)) {
+        TEActivate(doc->pageNumTE);
+        TEClick(localPt, false, doc->pageNumTE);
+        return;
+    }
+
+    DeactivatePageField(doc);
+
+    control = NULL;
+    part = FindControl(localPt, w, &control);
+    if (!control || part == 0) {
+        return;
+    }
+
+    if (control == doc->btnPrev) {
+        if (TrackControl(control, localPt, NULL)) {
+            TurnPage(w, -1);
+        }
+        return;
+    }
+
+    if (control == doc->btnNext) {
+        if (TrackControl(control, localPt, NULL)) {
+            TurnPage(w, 1);
+        }
+        return;
+    }
+
+    if (control == doc->btnGoTo) {
+        if (TrackControl(control, localPt, NULL)) {
+            DeactivatePageField(doc);
+            GoToPageNumber(w, ReadPageNumberField(doc));
+        }
+    }
+}
+
+static Boolean KeyIs(long keyMessage, unsigned char code) {
+    unsigned char lo = (unsigned char)(keyMessage & charCodeMask);
+    unsigned char hi = (unsigned char)((keyMessage >> 8) & 0xFF);
+    return lo == code || hi == code;
+}
+
+static void DoKeyPage(WindowRef w, long keyMessage) {
+    unsigned char lo = (unsigned char)(keyMessage & charCodeMask);
+    unsigned char hi = (unsigned char)((keyMessage >> 8) & 0xFF);
+
+    /* Page Up, Apple left (0x1B), or left arrow in char byte (0x1C). */
+    if (KeyIs(keyMessage, 0x0B) || KeyIs(keyMessage, 0x1B) || lo == 0x1C) {
+        TurnPage(w, -1);
+        return;
+    }
+    /* Page Down, right arrow in char byte (0x1D), or Apple right in hi byte. */
+    if (KeyIs(keyMessage, 0x0C) || lo == 0x1D || (hi == 0x1C && lo != 0x1C)) {
+        TurnPage(w, 1);
+        return;
+    }
+    if (lo == ' ') {
+        TurnPage(w, 1);
+    }
+}
+
+static void DoGrowWindow(WindowRef w, Point startPt) {
+    Rect minBounds;
+    Rect screen;
+    long growResult;
+
+    SetRect(&minBounds, kMinWindowWidth, kMinWindowHeight, kMinWindowWidth, kMinWindowHeight);
+    screen = qd.screenBits.bounds;
+    screen.top += kMenuBarHeight;
+
+    growResult = GrowWindow(w, startPt, &minBounds);
+    if (growResult != 0) {
+        short width = LoWord(growResult);
+        short height = HiWord(growResult);
+        SizeWindow(w, width, height, true);
+        LayoutReaderWindow(w);
+        InvalRect(&w->portRect);
+    }
+}
+
+int main(void) {
+    InitGraf(&qd.thePort);
+    InitFonts();
+    InitWindows();
+    InitMenus();
+    TEInit();
+    InitDialogs(NULL);
+
+    SetMenuBar(GetNewMBar(128));
+    AppendResMenu(GetMenu(128), 'DRVR');
+    DrawMenuBar();
+
+    InitCursor();
+
+    gMainWindow = NewReaderWindow("\pEPUB Reader");
+    if (gMainWindow) {
+        SetWelcomeText(gMainWindow);
+    }
+
+    for (;;) {
+        EventRecord e;
+        WindowRef win;
+        ReaderDoc* idleDoc = GetDoc(gMainWindow);
+        Boolean building = idleDoc && BookIndexIsBuilding(idleDoc);
+        Boolean blocksUI = idleDoc && BookIndexBlocksUI(idleDoc);
+        Boolean gotEvent;
+
+        SystemTask();
+
+        if (idleDoc && idleDoc->bookIndexPending && !building) {
+            SFReply pendingReply;
+
+            memset(&pendingReply, 0, sizeof(pendingReply));
+            pendingReply.good = true;
+            pendingReply.vRefNum = idleDoc->bookSourceVRefNum;
+            memcpy(pendingReply.fName, idleDoc->bookSourceName, idleDoc->bookSourceName[0] + 1);
+            idleDoc->bookIndexPending = false;
+            (void)BookIndexPrepare(gMainWindow, idleDoc, &pendingReply);
+        }
+
+        if (building) {
+            BookIndexIdle(gMainWindow, idleDoc);
+        }
+
+        if (idleDoc && idleDoc->pageNumTE) {
+            TEIdle(idleDoc->pageNumTE);
+        }
+
+        if (building) {
+            gotEvent = WaitNextEvent(everyEvent, &e, 0, NULL);
+        } else {
+            gotEvent = GetNextEvent(everyEvent, &e);
+        }
+
+        if (gotEvent) {
+            switch (e.what) {
+                case keyDown:
+                case autoKey:
+                    if ((e.modifiers & cmdKey) != 0) {
+                        AdjustMenus();
+                        DoMenuCommand(MenuKey(e.message & charCodeMask));
+                    } else {
+                        char key = (char)(e.message & charCodeMask);
+                        ReaderDoc* doc;
+
+                        win = FrontWindow();
+                        doc = (win && GetWindowKind(win) >= 0) ? GetDoc(win) : NULL;
+                        if (PageFieldActive(doc)) {
+                            if (key == '\r' || key == 0x03) {
+                                GoToPageNumber(win, ReadPageNumberField(doc));
+                                DeactivatePageField(doc);
+                            } else {
+                                TEKey(key, doc->pageNumTE);
+                            }
+                        } else if (win && GetWindowKind(win) >= 0) {
+                            ReaderDoc* keyDoc = GetDoc(win);
+                            if (!keyDoc || !BookIndexBlocksUI(keyDoc)) {
+                                DoKeyPage(win, e.message);
+                            }
+                        }
+                    }
+                    break;
+                case mouseDown:
+                    switch (FindWindow(e.where, &win)) {
+                        case inMenuBar:
+                            if (!blocksUI) {
+                                AdjustMenus();
+                                DoMenuCommand(MenuSelect(e.where));
+                            }
+                            break;
+                        case inDrag:
+                            DragWindow(win, e.where, &qd.screenBits.bounds);
+                            break;
+                        case inGoAway:
+                            if (TrackGoAway(win, e.where)) {
+                                DoCloseWindow(win);
+                            }
+                            break;
+                        case inGrow:
+                            DoGrowWindow(win, e.where);
+                            break;
+                        case inContent:
+                            if (!blocksUI) {
+                                if (win != FrontWindow()) {
+                                    SelectWindow(win);
+                                } else {
+                                    SetPort(win);
+                                    {
+                                        Point localPt = e.where;
+                                        GlobalToLocal(&localPt);
+                                        DoContentClick(win, localPt);
+                                    }
+                                }
+                            }
+                            break;
+                        case inSysWindow:
+                            SystemClick(&e, win);
+                            break;
+                    }
+                    break;
+                case updateEvt:
+                    DoUpdate((WindowRef)e.message);
+                    break;
+                case nullEvent:
+                    break;
+            }
+        }
+    }
+
+    return 0;
+}
