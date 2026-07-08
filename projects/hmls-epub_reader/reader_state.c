@@ -206,6 +206,12 @@ void ReaderStateLoad(ReaderDoc* doc) {
     SortBookmarks(doc);
 }
 
+void ReaderStateMarkDirty(ReaderDoc* doc) {
+    if (doc) {
+        doc->stateDirty = true;
+    }
+}
+
 void ReaderStateSave(ReaderDoc* doc) {
     Str255 stateName;
     short refNum = 0;
@@ -256,6 +262,9 @@ void ReaderStateSave(ReaderDoc* doc) {
     }
 
     FSClose(refNum);
+    if (doc) {
+        doc->stateDirty = false;
+    }
 }
 
 Boolean ReaderStateHasBookmark(const ReaderDoc* doc, short page) {

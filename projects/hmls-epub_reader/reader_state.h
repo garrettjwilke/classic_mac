@@ -12,11 +12,13 @@ enum {
     kItemDeleteBookmark = 2,
     kItemBookmarkFirst = 4,
     kItemGoToChapter = 1,
-    kItemChapterFirst = 4
+    /* First dynamic chapter item (after "Go to Chapter..." and separator). */
+    kItemChapterFirst = 3
 };
 
 void ReaderStateLoad(ReaderDoc* doc);
 void ReaderStateSave(ReaderDoc* doc);
+void ReaderStateMarkDirty(ReaderDoc* doc);
 
 Boolean ReaderStateHasBookmark(const ReaderDoc* doc, short page);
 OSErr ReaderStateAddBookmark(ReaderDoc* doc, short page);

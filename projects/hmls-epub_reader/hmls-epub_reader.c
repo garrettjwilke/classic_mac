@@ -289,7 +289,7 @@ void ReaderReleaseBookFiles(ReaderDoc* doc, Boolean saveState) {
         return;
     }
 
-    if (saveState && doc->hasFile && doc->bookSourceName[0] > 0) {
+    if (saveState && doc->hasFile && doc->bookSourceName[0] > 0 && doc->stateDirty) {
         ReaderStateSave(doc);
     }
 
@@ -341,15 +341,29 @@ static void TrimTrailingSpaces(char* lineBuf, short* lineLen) {
 
 static void RewindPos(ReaderDoc* doc, long* pos, short consumed, short keep) {
     long rewindCount = (long)consumed - (long)keep;
+    long newPos;
 
     if (rewindCount <= 0) {
         return;
     }
-    *pos -= rewindCount;
-    if (doc->fileRef > 0) {
-        SetFPos(doc->fileRef, fsFromStart, *pos);
-        InvalidateReadBuf(doc);
+    newPos = *pos - rewindCount;
+    *pos = newPos;
+
+    if (doc->fileRef <= 0) {
+        return;
     }
+
+    /* Word-wrap rewinds are usually within the 4K read buffer — avoid SetFPos per line. */
+    if (doc->readBufPos >= 0 && newPos >= doc->readBufPos
+        && newPos < doc->readBufPos + (long)doc->readBufCount) {
+        return;
+    }
+
+    if (SetFPos(doc->fileRef, fsFromStart, newPos) != noErr) {
+        InvalidateReadBuf(doc);
+        return;
+    }
+    InvalidateReadBuf(doc);
 }
 
 /*
@@ -1068,7 +1082,10 @@ static void GoToPageNumber(WindowRef w, short pageNum) {
     ReaderUpdateChapterStatus(w, doc);
     RedrawAfterPageChange(w);
     if (doc->hasFile) {
-        ReaderStateSave(doc);
+        ReaderStateMarkDirty(doc);
+        if ((doc->currentPage & 15) == 0) {
+            ReaderStateSave(doc);
+        }
     }
 }
 
@@ -1125,7 +1142,10 @@ static void TurnPage(WindowRef w, short direction) {
     UpdatePageButtons(doc);
     RedrawAfterPageChange(w);
     if (doc->hasFile) {
-        ReaderStateSave(doc);
+        ReaderStateMarkDirty(doc);
+        if ((doc->currentPage & 15) == 0) {
+            ReaderStateSave(doc);
+        }
     }
 }
 
@@ -1145,13 +1165,11 @@ short ReaderChapterForPage(const ReaderDoc* doc, short page) {
 }
 
 void ReaderUpdateChapterStatus(WindowRef w, ReaderDoc* doc) {
+    (void)w;
     if (!doc) {
         return;
     }
     doc->currentChapter = ReaderChapterForPage(doc, doc->currentPage);
-    if (w && !EmptyRect(&doc->chapterStatusRect)) {
-        InvalRect(&doc->chapterStatusRect);
-    }
 }
 
 static WindowRef NewReaderWindow(ConstStr255Param title) {
@@ -1564,6 +1582,9 @@ void DoMenuCommand(long menuCommand) {
                 break;
             case kItemQuit: {
                 ReaderDoc* quitDoc = gMainWindow ? GetDoc(gMainWindow) : NULL;
+                if (quitDoc && quitDoc->stateDirty) {
+                    ReaderStateSave(quitDoc);
+                }
                 if (quitDoc) {
                     ReaderReleaseBookFiles(quitDoc, true);
                 }
@@ -1609,7 +1630,14 @@ void DoMenuCommand(long menuCommand) {
             return;
         }
 
-        if (menuItem >= kItemChapterFirst) {
+        if (menuItem == kItemGoToChapter) {
+            if (doc->chapterCount > 0) {
+                short page;
+                if (BookIndexChapterFirstPage(doc, 1, &page) == noErr) {
+                    GoToPageNumber(w, page);
+                }
+            }
+        } else if (menuItem >= kItemChapterFirst) {
             short index = (short)(menuItem - kItemChapterFirst);
             short page;
 

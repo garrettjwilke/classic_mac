@@ -86,6 +86,7 @@ typedef struct ReaderDoc {
     short savedLastChapter;
     short bookmarkPages[kMaxBookmarks];
     short bookmarkCount;
+    Boolean stateDirty;
     long readBufPos;
     short readBufCount;
     unsigned char readBuf[kReadBufSize];
