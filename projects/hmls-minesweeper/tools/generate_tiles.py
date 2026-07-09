@@ -18,6 +18,7 @@ PALETTE = bytes([0, 0, 0, 255, 255, 255])
 TILES = [
     ("covered.png", 128, "?"),
     ("flag.png", 129, "F"),
+    ("unsure.png", 145, "u"),
     ("mine.png", 130, "*"),
     ("mine_hit.png", 131, "X"),
     ("empty.png", 132, " "),

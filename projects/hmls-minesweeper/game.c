@@ -49,6 +49,7 @@ static void GameClearBoard(GameState* game)
     for (i = 0; i < total; ++i) {
         game->mines[i] = 0;
         game->flags[i] = 0;
+        game->unsure[i] = 0;
         game->revealed[i] = 0;
         game->counts[i] = 0;
     }
@@ -205,7 +206,7 @@ static void GameRevealCell(GameState* game, short startX, short startY)
     }
 
     index = GameIndex(game, startX, startY);
-    if (game->revealed[index] || game->flags[index]) {
+    if (game->revealed[index] || game->flags[index] || game->unsure[index]) {
         return;
     }
 
@@ -227,7 +228,7 @@ static void GameRevealCell(GameState* game, short startX, short startY)
         }
 
         index = GameIndex(game, x, y);
-        if (game->revealed[index] || game->flags[index]) {
+        if (game->revealed[index] || game->flags[index] || game->unsure[index]) {
             continue;
         }
 
@@ -254,7 +255,8 @@ static void GameRevealCell(GameState* game, short startX, short startY)
                 ny = (short)(y + dy);
                 if (GameInBounds(game, nx, ny)
                     && !game->revealed[GameIndex(game, nx, ny)]
-                    && !game->flags[GameIndex(game, nx, ny)]) {
+                    && !game->flags[GameIndex(game, nx, ny)]
+                    && !game->unsure[GameIndex(game, nx, ny)]) {
                     pending[top++] = nx;
                     pending[top++] = ny;
                 }
@@ -271,6 +273,7 @@ void GameInit(GameState* game)
     memset(game, 0, sizeof(*game));
     game->mines = NULL;
     game->flags = NULL;
+    game->unsure = NULL;
     game->revealed = NULL;
     game->counts = NULL;
     game->difficulty = kDifficultyBeginner;
@@ -285,6 +288,10 @@ void GameDispose(GameState* game)
     if (game->flags) {
         DisposePtr((Ptr)game->flags);
         game->flags = NULL;
+    }
+    if (game->unsure) {
+        DisposePtr((Ptr)game->unsure);
+        game->unsure = NULL;
     }
     if (game->revealed) {
         DisposePtr((Ptr)game->revealed);
@@ -314,6 +321,7 @@ void GameNewDifficulty(GameState* game, GameDifficulty difficulty)
 
     game->mines = (unsigned char*)NewPtrClear(total);
     game->flags = (unsigned char*)NewPtrClear(total);
+    game->unsure = (unsigned char*)NewPtrClear(total);
     game->revealed = (unsigned char*)NewPtrClear(total);
     game->counts = (unsigned char*)NewPtrClear(total);
 
@@ -381,6 +389,14 @@ short GameIsFlagged(const GameState* game, short x, short y)
     return game->flags[GameIndex(game, x, y)] != 0;
 }
 
+short GameIsUnsure(const GameState* game, short x, short y)
+{
+    if (!GameInBounds(game, x, y)) {
+        return 0;
+    }
+    return game->unsure[GameIndex(game, x, y)] != 0;
+}
+
 short GameIsMine(const GameState* game, short x, short y)
 {
     if (!GameInBounds(game, x, y)) {
@@ -434,7 +450,7 @@ void GameReveal(GameState* game, short x, short y)
         return;
     }
 
-    if (game->flags[GameIndex(game, x, y)]) {
+    if (game->flags[GameIndex(game, x, y)] || game->unsure[GameIndex(game, x, y)]) {
         return;
     }
 
@@ -452,7 +468,7 @@ void GameReveal(GameState* game, short x, short y)
     }
 }
 
-void GameToggleFlag(GameState* game, short x, short y)
+void GameCycleMark(GameState* game, short x, short y)
 {
     short index;
 
@@ -470,6 +486,9 @@ void GameToggleFlag(GameState* game, short x, short y)
     if (game->flags[index]) {
         game->flags[index] = 0;
         --game->flagCount;
+        game->unsure[index] = 1;
+    } else if (game->unsure[index]) {
+        game->unsure[index] = 0;
     } else {
         game->flags[index] = 1;
         ++game->flagCount;

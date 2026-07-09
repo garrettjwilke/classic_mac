@@ -74,7 +74,7 @@ resource 'WIND' (128) {
 data 'TEXT' (128) {
     "Minesweeper for Classic Mac\r\r"
     "Left click to reveal.\r"
-    "Option-click to flag.\r\r"
+    "Option-click to cycle flag/unsure.\r\r"
     "Built with Retro68."
 };
 

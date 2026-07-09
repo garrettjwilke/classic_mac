@@ -328,6 +328,10 @@ static short TileForCell(const GameState* game, short x, short y)
         return kTileFlag;
     }
 
+    if (GameIsUnsure(game, x, y)) {
+        return kTileUnsure;
+    }
+
     if (GameGetStatus(game) == kGameLost && GameIsMine(game, x, y)) {
         if (GameIsRevealed(game, x, y)) {
             return kTileMineHit;
@@ -461,7 +465,7 @@ static void DoContentClick(WindowRef w, Point localPt, short optionKey)
     }
 
     if (optionKey) {
-        GameToggleFlag(&gGame, x, y);
+        GameCycleMark(&gGame, x, y);
         RedrawMineCounter(w);
     } else {
         GameReveal(&gGame, x, y);

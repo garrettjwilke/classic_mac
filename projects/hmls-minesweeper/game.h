@@ -27,6 +27,7 @@ typedef struct {
 
     unsigned char* mines;
     unsigned char* flags;
+    unsigned char* unsure;
     unsigned char* revealed;
     unsigned char* counts;
 
@@ -51,6 +52,7 @@ GameDifficulty GameGetDifficulty(const GameState* game);
 
 short GameIsRevealed(const GameState* game, short x, short y);
 short GameIsFlagged(const GameState* game, short x, short y);
+short GameIsUnsure(const GameState* game, short x, short y);
 short GameIsMine(const GameState* game, short x, short y);
 short GameGetCount(const GameState* game, short x, short y);
 
@@ -59,6 +61,6 @@ void GameClearChanges(GameState* game);
 short GameGetChangedCount(const GameState* game);
 void GameGetChangedCell(const GameState* game, short index, short* x, short* y);
 void GameReveal(GameState* game, short x, short y);
-void GameToggleFlag(GameState* game, short x, short y);
+void GameCycleMark(GameState* game, short x, short y);
 
 #endif

@@ -5,6 +5,7 @@ project(${APP_NAME} C)
 set(TILE_PNGS
     ${CMAKE_CURRENT_SOURCE_DIR}/tiles/covered.png
     ${CMAKE_CURRENT_SOURCE_DIR}/tiles/flag.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/tiles/unsure.png
     ${CMAKE_CURRENT_SOURCE_DIR}/tiles/mine.png
     ${CMAKE_CURRENT_SOURCE_DIR}/tiles/mine_hit.png
     ${CMAKE_CURRENT_SOURCE_DIR}/tiles/empty.png
