@@ -512,6 +512,8 @@ static void StartNewGame(GameDifficulty difficulty)
     GameNewDifficulty(&gGame, difficulty);
     if (gMainWindow) {
         RedrawFullWindow(gMainWindow);
+        SetPort(gMainWindow);
+        ValidRect(&gMainWindow->portRect);
     }
 }
 
