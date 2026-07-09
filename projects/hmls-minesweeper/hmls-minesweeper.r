@@ -18,9 +18,9 @@ resource 'MENU' (129) {
     allEnabled, enabled;
     "Game";
     {
-        "Beginner", noIcon, noKey, noMark, plain;
-        "Intermediate", noIcon, noKey, noMark, plain;
-        "Expert", noIcon, noKey, noMark, plain;
+        "Beginner", noIcon, "1", noMark, plain;
+        "Intermediate", noIcon, "2", noMark, plain;
+        "Expert", noIcon, "3", noMark, plain;
         "-", noIcon, noKey, noMark, plain;
         "New Game", noIcon, "N", noMark, plain;
         "-", noIcon, noKey, noMark, plain;
