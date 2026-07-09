@@ -735,7 +735,7 @@ static void ShowHelpDialog(WindowRef w)
             if (e.what == updateEvt) {
                 HandleModalDialogUpdate(w, dlgWin, dlg, (WindowPtr)e.message);
             } else if (IsDialogEvent(&e)) {
-                DialogSelect(&e, dlg, &item);
+                DialogSelect(&e, &dlg, &item);
                 if (item == kDialogItemHelpClose) {
                     break;
                 }

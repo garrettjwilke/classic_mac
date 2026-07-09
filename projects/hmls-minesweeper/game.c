@@ -69,18 +69,18 @@ static void GameGetDifficultySize(GameDifficulty difficulty, short* width, short
         case kDifficultyIntermediate:
             *width = 16;
             *height = 16;
-            *mines = 40;
+            *mines = 75;
             break;
         case kDifficultyExpert:
             *width = 30;
             *height = 16;
-            *mines = 99;
+            *mines = 150;
             break;
         case kDifficultyBeginner:
         default:
             *width = 9;
             *height = 9;
-            *mines = 10;
+            *mines = 20;
             break;
     }
 }
