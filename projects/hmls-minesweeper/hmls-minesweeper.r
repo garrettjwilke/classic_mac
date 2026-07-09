@@ -63,6 +63,34 @@ resource 'DITL' (129) {
     }
 };
 
+resource 'DLOG' (130) {
+    { 60, 70, 255, 400 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    130,
+    "Help",
+    centerMainScreen
+};
+
+resource 'DITL' (130) {
+    {
+        { 12, 16, 138, 314 },
+        StaticText { disabled,
+            "Hold the Option key and click a tile\r"
+            "to place flags or question blocks.\r\r"
+            "To start a new game with a specific mode:\r"
+            "CMD + 1 = Beginner\r"
+            "CMD + 2 = Intermediate\r"
+            "CMD + 3 = Expert"
+        };
+
+        { 148, 130, 168, 230 },
+        Button { enabled, "Close" };
+    }
+};
+
 resource 'WIND' (128) {
     {20, 0, 342, 512}, noGrowDocProc;
     invisible;

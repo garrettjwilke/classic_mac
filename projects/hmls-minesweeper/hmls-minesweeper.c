@@ -32,7 +32,10 @@ enum {
 enum {
     kMenuBarHeight = 20,
     kStatusBarHeight = 16,
-    kStatusPadding = 4
+    kStatusPadding = 4,
+    kStatusItemGap = 8,
+    kCounterWidth = 39,
+    kHelpButtonWidth = 48
 };
 
 enum {
@@ -43,6 +46,11 @@ enum {
     kDialogItemQuit = 5
 };
 
+enum {
+    kHelpDialog = 130,
+    kDialogItemHelpClose = 2
+};
+
 static WindowRef gMainWindow;
 static GameState gGame;
 static short gMouseDownInContent;
@@ -51,7 +59,7 @@ static short gDone;
 
 static void FillScreenWindow(WindowRef w);
 static void GetBoardLayout(WindowRef w, Rect* boardRect, Rect* statusRect, Rect* faceRect);
-static void GetCounterRects(WindowRef w, Rect* leftCounter, Rect* rightCounter, Rect* faceRect);
+static void GetStatusLayout(WindowRef w, Rect* mineCounter, Rect* timerCounter, Rect* faceRect, Rect* helpRect);
 static void DrawStatusBar(WindowRef w);
 static void DrawBoard(WindowRef w);
 static void DoUpdate(WindowRef w);
@@ -64,6 +72,7 @@ static void RedrawChangedCells(WindowRef w);
 static void RedrawFullWindow(WindowRef w);
 static void DoContentClick(WindowRef w, Point localPt, short optionKey);
 static void ShowAboutBox(void);
+static void ShowHelpDialog(void);
 static void DoMenuCommand(long menuCommand);
 static void StartNewGame(GameDifficulty difficulty);
 static short ShowDifficultyDialog(GameDifficulty* difficulty);
@@ -112,8 +121,8 @@ static void GetBoardLayout(WindowRef w, Rect* boardRect, Rect* statusRect, Rect*
     Rect port = w->portRect;
     short boardWidth;
     short boardHeight;
-    short totalWidth;
-    short totalHeight;
+    short contentTop;
+    short contentHeight;
     short originX;
     short originY;
 
@@ -121,26 +130,52 @@ static void GetBoardLayout(WindowRef w, Rect* boardRect, Rect* statusRect, Rect*
 
     boardWidth = (short)(GameGetWidth(&gGame) * kTileSize);
     boardHeight = (short)(GameGetHeight(&gGame) * kTileSize);
-    totalWidth = boardWidth;
-    totalHeight = (short)(kStatusBarHeight + boardHeight);
+    contentTop = (short)(port.top + kStatusBarHeight);
+    contentHeight = (short)(port.bottom - contentTop);
 
-    originX = (short)(port.left + (port.right - port.left - totalWidth) / 2);
-    originY = (short)(port.top + (port.bottom - port.top - totalHeight) / 2);
-    if (originY < port.top) {
-        originY = port.top;
+    originX = (short)(port.left + (port.right - port.left - boardWidth) / 2);
+    originY = (short)(contentTop + (contentHeight - boardHeight) / 2);
+    if (originY < contentTop) {
+        originY = contentTop;
     }
 
     SetRect(boardRect,
         originX,
-        (short)(originY + kStatusBarHeight),
+        originY,
         (short)(originX + boardWidth),
-        (short)(originY + kStatusBarHeight + boardHeight));
+        (short)(originY + boardHeight));
 
     SetRect(faceRect,
-        (short)(originX + totalWidth / 2 - kTileSize / 2),
-        (short)(originY + (kStatusBarHeight - kTileSize) / 2),
-        (short)(originX + totalWidth / 2 + kTileSize / 2),
-        (short)(originY + (kStatusBarHeight - kTileSize) / 2 + kTileSize));
+        (short)(originX + boardWidth / 2 - kTileSize / 2),
+        (short)(port.top + (kStatusBarHeight - kTileSize) / 2),
+        (short)(originX + boardWidth / 2 + kTileSize / 2),
+        (short)(port.top + (kStatusBarHeight - kTileSize) / 2 + kTileSize));
+}
+
+static void GetStatusLayout(WindowRef w, Rect* mineCounter, Rect* timerCounter, Rect* faceRect, Rect* helpRect)
+{
+    Rect boardRect;
+    Rect statusRect;
+
+    GetBoardLayout(w, &boardRect, &statusRect, faceRect);
+
+    SetRect(mineCounter,
+        (short)(w->portRect.left + kStatusPadding),
+        (short)(w->portRect.top + 1),
+        (short)(w->portRect.left + kStatusPadding + kCounterWidth),
+        (short)(w->portRect.top + kStatusBarHeight - 1));
+
+    SetRect(timerCounter,
+        (short)(mineCounter->right + kStatusItemGap),
+        mineCounter->top,
+        (short)(mineCounter->right + kStatusItemGap + kCounterWidth),
+        mineCounter->bottom);
+
+    SetRect(helpRect,
+        (short)(w->portRect.right - kStatusPadding - kHelpButtonWidth),
+        mineCounter->top,
+        (short)(w->portRect.right - kStatusPadding),
+        mineCounter->bottom);
 }
 
 static void DrawCounter(short value, const Rect* area)
@@ -172,62 +207,55 @@ static void DrawCounter(short value, const Rect* area)
     TextFace(0);
 }
 
-static void GetCounterRects(WindowRef w, Rect* leftCounter, Rect* rightCounter, Rect* faceRect)
+static void DrawHelpButton(const Rect* area)
 {
-    Rect boardRect;
-    Rect statusRect;
-    short originX;
-    short originY;
-    short totalWidth;
+    Rect box = *area;
 
-    GetBoardLayout(w, &boardRect, &statusRect, faceRect);
-    totalWidth = boardRect.right - boardRect.left;
-    originX = boardRect.left;
-    originY = statusRect.top;
-
-    SetRect(leftCounter,
-        (short)(originX + kStatusPadding),
-        (short)(originY + 1),
-        (short)(originX + kStatusPadding + 39),
-        (short)(originY + kStatusBarHeight - 1));
-
-    SetRect(rightCounter,
-        (short)(originX + totalWidth - kStatusPadding - 39),
-        (short)(originY + 1),
-        (short)(originX + totalWidth - kStatusPadding),
-        (short)(originY + kStatusBarHeight - 1));
+    PenNormal();
+    FillRect(&box, &qd.white);
+    FrameRect(&box);
+    InsetRect(&box, 2, 1);
+    TextFont(1);
+    TextSize(12);
+    TextFace(bold);
+    MoveTo((short)(box.left + 6), (short)(box.bottom - 3));
+    DrawString("\pHelp");
+    TextFace(0);
 }
 
 static void RedrawTimer(WindowRef w)
 {
-    Rect leftCounter;
-    Rect rightCounter;
+    Rect mineCounter;
+    Rect timerCounter;
     Rect faceRect;
+    Rect helpRect;
 
     SetPort(w);
-    GetCounterRects(w, &leftCounter, &rightCounter, &faceRect);
-    DrawCounter(GameGetElapsedSeconds(&gGame), &rightCounter);
+    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
+    DrawCounter(GameGetElapsedSeconds(&gGame), &timerCounter);
 }
 
 static void RedrawMineCounter(WindowRef w)
 {
-    Rect leftCounter;
-    Rect rightCounter;
+    Rect mineCounter;
+    Rect timerCounter;
     Rect faceRect;
+    Rect helpRect;
 
     SetPort(w);
-    GetCounterRects(w, &leftCounter, &rightCounter, &faceRect);
-    DrawCounter(GameGetRemainingMines(&gGame), &leftCounter);
+    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
+    DrawCounter(GameGetRemainingMines(&gGame), &mineCounter);
 }
 
 static void RedrawFace(WindowRef w)
 {
-    Rect leftCounter;
-    Rect rightCounter;
+    Rect mineCounter;
+    Rect timerCounter;
     Rect faceRect;
+    Rect helpRect;
 
     SetPort(w);
-    GetCounterRects(w, &leftCounter, &rightCounter, &faceRect);
+    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
     DrawTile(FaceTileForGame(&gGame, gFacePressed), &faceRect);
 }
 
@@ -290,36 +318,21 @@ static void DrawStatusBar(WindowRef w)
     Rect statusRect;
     Rect boardRect;
     Rect faceRect;
-    Rect leftCounter;
-    Rect rightCounter;
-    short originX;
-    short originY;
-    short totalWidth;
+    Rect mineCounter;
+    Rect timerCounter;
+    Rect helpRect;
 
     GetBoardLayout(w, &boardRect, &statusRect, &faceRect);
-    totalWidth = boardRect.right - boardRect.left;
-    originX = boardRect.left;
-    originY = statusRect.top;
+    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
 
     PenNormal();
     FillRect(&statusRect, &qd.ltGray);
     FrameRect(&statusRect);
 
-    SetRect(&leftCounter,
-        (short)(originX + kStatusPadding),
-        (short)(originY + 1),
-        (short)(originX + kStatusPadding + 39),
-        (short)(originY + kStatusBarHeight - 1));
-
-    SetRect(&rightCounter,
-        (short)(originX + totalWidth - kStatusPadding - 39),
-        (short)(originY + 1),
-        (short)(originX + totalWidth - kStatusPadding),
-        (short)(originY + kStatusBarHeight - 1));
-
-    DrawCounter(GameGetRemainingMines(&gGame), &leftCounter);
-    DrawCounter(GameGetElapsedSeconds(&gGame), &rightCounter);
+    DrawCounter(GameGetRemainingMines(&gGame), &mineCounter);
+    DrawCounter(GameGetElapsedSeconds(&gGame), &timerCounter);
     DrawTile(FaceTileForGame(&gGame, gFacePressed), &faceRect);
+    DrawHelpButton(&helpRect);
 }
 
 static short TileForCell(const GameState* game, short x, short y)
@@ -445,10 +458,29 @@ static short PointInFace(Point localPt, WindowRef w)
     return PtInRect(localPt, &faceRect);
 }
 
+static short PointInHelp(Point localPt, WindowRef w)
+{
+    Rect mineCounter;
+    Rect timerCounter;
+    Rect faceRect;
+    Rect helpRect;
+
+    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
+    return PtInRect(localPt, &helpRect);
+}
+
 static void DoContentClick(WindowRef w, Point localPt, short optionKey)
 {
     short x;
     short y;
+
+    if (PointInHelp(localPt, w)) {
+        ShowHelpDialog();
+        RedrawFullWindow(w);
+        SetPort(w);
+        ValidRect(&w->portRect);
+        return;
+    }
 
     if (PointInFace(localPt, w)) {
         StartNewGame(GameGetDifficulty(&gGame));
@@ -504,6 +536,24 @@ static void ShowAboutBox(void)
     }
     FlushEvents(everyEvent, 0);
     DisposeWindow(w);
+}
+
+static void ShowHelpDialog(void)
+{
+    DialogPtr dlg;
+    short item;
+
+    dlg = GetNewDialog(kHelpDialog, NULL, (WindowPtr)-1);
+    if (!dlg) {
+        return;
+    }
+
+    do {
+        ModalDialog(NULL, &item);
+    } while (item != kDialogItemHelpClose);
+
+    DisposeDialog(dlg);
+    FlushEvents(everyEvent, 0);
 }
 
 static void StartNewGame(GameDifficulty difficulty)
