@@ -41,6 +41,9 @@ static void GameNoteUnflaggedMines(GameState* game)
     }
 }
 
+static void GameClearBoard(GameState* game);
+static void GamePlaceMines(GameState* game);
+
 static void GameClearBoard(GameState* game)
 {
     short i;
@@ -61,6 +64,7 @@ static void GameClearBoard(GameState* game)
     game->status = kGamePlaying;
     game->firstClickDone = 0;
     game->changedCount = 0;
+    GamePlaceMines(game);
 }
 
 static void GameGetDifficultySize(GameDifficulty difficulty, short* width, short* height, short* mines)
@@ -69,18 +73,18 @@ static void GameGetDifficultySize(GameDifficulty difficulty, short* width, short
         case kDifficultyIntermediate:
             *width = 16;
             *height = 16;
-            *mines = 75;
+            *mines = 50;
             break;
         case kDifficultyExpert:
             *width = 30;
             *height = 16;
-            *mines = 150;
+            *mines = 100;
             break;
         case kDifficultyBeginner:
         default:
             *width = 9;
             *height = 9;
-            *mines = 20;
+            *mines = 10;
             break;
     }
 }
@@ -120,44 +124,10 @@ static void GameCountNeighbors(GameState* game)
     }
 }
 
-static short GameIsSafePlacement(const GameState* game, short index, short safeIndex)
-{
-    short dx;
-    short dy;
-    short x;
-    short y;
-    short sx;
-    short sy;
-    short nx;
-    short ny;
-
-    if (index == safeIndex) {
-        return 0;
-    }
-
-    sx = (short)(safeIndex % game->width);
-    sy = (short)(safeIndex / game->width);
-    x = (short)(index % game->width);
-    y = (short)(index / game->width);
-
-    for (dy = -1; dy <= 1; ++dy) {
-        for (dx = -1; dx <= 1; ++dx) {
-            nx = (short)(sx + dx);
-            ny = (short)(sy + dy);
-            if (nx == x && ny == y) {
-                return 0;
-            }
-        }
-    }
-
-    return 1;
-}
-
-static void GamePlaceMines(GameState* game, short safeX, short safeY)
+static void GamePlaceMines(GameState* game)
 {
     short total = (short)(game->width * game->height);
     short placed = 0;
-    short safeIndex = GameIndex(game, safeX, safeY);
     short index;
 
     for (index = 0; index < total; ++index) {
@@ -166,9 +136,6 @@ static void GamePlaceMines(GameState* game, short safeX, short safeY)
 
     while (placed < game->mineCount) {
         index = (short)(((unsigned short)Random()) % (unsigned short)total);
-        if (!GameIsSafePlacement(game, index, safeIndex)) {
-            continue;
-        }
         if (game->mines[index]) {
             continue;
         }
@@ -192,6 +159,8 @@ static void GameCheckWin(GameState* game)
 static void GameRevealCell(GameState* game, short startX, short startY)
 {
     short* pending;
+    unsigned char* queued;
+    short total;
     short top;
     short x;
     short y;
@@ -200,6 +169,7 @@ static void GameRevealCell(GameState* game, short startX, short startY)
     short nx;
     short ny;
     short index;
+    short nindex;
 
     if (!GameInBounds(game, startX, startY)) {
         return;
@@ -210,12 +180,21 @@ static void GameRevealCell(GameState* game, short startX, short startY)
         return;
     }
 
+    total = (short)(game->width * game->height);
     pending = (short*)NewPtrClear((Size)(kMaxBoardCells * 2 * sizeof(short)));
-    if (!pending) {
+    queued = (unsigned char*)NewPtrClear(total);
+    if (!pending || !queued) {
+        if (pending) {
+            DisposePtr((Ptr)pending);
+        }
+        if (queued) {
+            DisposePtr((Ptr)queued);
+        }
         return;
     }
 
     top = 0;
+    queued[index] = 1;
     pending[top++] = startX;
     pending[top++] = startY;
 
@@ -238,6 +217,7 @@ static void GameRevealCell(GameState* game, short startX, short startY)
 
         if (game->mines[index]) {
             game->status = kGameLost;
+            DisposePtr((Ptr)queued);
             DisposePtr((Ptr)pending);
             return;
         }
@@ -253,17 +233,21 @@ static void GameRevealCell(GameState* game, short startX, short startY)
                 }
                 nx = (short)(x + dx);
                 ny = (short)(y + dy);
-                if (GameInBounds(game, nx, ny)
-                    && !game->revealed[GameIndex(game, nx, ny)]
-                    && !game->flags[GameIndex(game, nx, ny)]
-                    && !game->unsure[GameIndex(game, nx, ny)]) {
-                    pending[top++] = nx;
-                    pending[top++] = ny;
+                if (!GameInBounds(game, nx, ny)) {
+                    continue;
                 }
+                nindex = GameIndex(game, nx, ny);
+                if (game->revealed[nindex] || game->flags[nindex] || game->unsure[nindex] || queued[nindex]) {
+                    continue;
+                }
+                queued[nindex] = 1;
+                pending[top++] = nx;
+                pending[top++] = ny;
             }
         }
     }
 
+    DisposePtr((Ptr)queued);
     DisposePtr((Ptr)pending);
     GameCheckWin(game);
 }
@@ -464,7 +448,6 @@ void GameReveal(GameState* game, short x, short y)
     if (!game->firstClickDone) {
         game->firstClickDone = 1;
         game->startTicks = TickCount();
-        GamePlaceMines(game, x, y);
     }
 
     GameRevealCell(game, x, y);
