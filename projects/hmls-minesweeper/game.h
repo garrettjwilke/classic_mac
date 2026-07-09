@@ -49,6 +49,7 @@ short GameGetRemainingMines(const GameState* game);
 short GameGetElapsedSeconds(const GameState* game);
 GameStatus GameGetStatus(const GameState* game);
 GameDifficulty GameGetDifficulty(const GameState* game);
+short GameIsActive(const GameState* game);
 
 short GameIsRevealed(const GameState* game, short x, short y);
 short GameIsFlagged(const GameState* game, short x, short y);

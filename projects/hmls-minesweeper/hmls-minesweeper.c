@@ -51,11 +51,19 @@ enum {
     kDialogItemHelpClose = 2
 };
 
+enum {
+    kDiscardDialog = 131,
+    kDialogItemDiscardYes = 2,
+    kDialogItemDiscardNo = 3
+};
+
 static WindowRef gMainWindow;
 static GameState gGame;
 static short gMouseDownInContent;
 static short gFacePressed;
 static short gHelpDialogOpen;
+static short gMainWindowVisible;
+static short gModalTimerLastSeconds;
 static short gDone;
 
 static void FillScreenWindow(WindowRef w);
@@ -75,7 +83,13 @@ static void ClearBoardArea(WindowRef w);
 static void DoContentClick(WindowRef w, Point localPt, short optionKey);
 static void ShowAboutBox(void);
 static void ShowHelpDialog(WindowRef w);
+static short ShowDiscardConfirmDialog(WindowRef w);
+static short ConfirmDiscardIfNeeded(WindowRef w);
+static void ServiceActiveGameTimer(WindowRef w, short* lastSeconds);
+static void HandleModalDialogUpdate(WindowRef mainWin, WindowPtr dlgWin, DialogPtr dlg, WindowPtr updateWin);
 static void DoMenuCommand(long menuCommand);
+static void RequestNewGame(GameDifficulty difficulty);
+static void RequestNewGameFromMenu(void);
 static void StartNewGame(GameDifficulty difficulty);
 static short ShowDifficultyDialog(GameDifficulty* difficulty);
 static short TileForCell(const GameState* game, short x, short y);
@@ -502,7 +516,7 @@ static void DoContentClick(WindowRef w, Point localPt, short optionKey)
     }
 
     if (PointInFace(localPt, w)) {
-        StartNewGame(GameGetDifficulty(&gGame));
+        RequestNewGame(GameGetDifficulty(&gGame));
         return;
     }
 
@@ -557,6 +571,104 @@ static void ShowAboutBox(void)
     DisposeWindow(w);
 }
 
+static void ServiceActiveGameTimer(WindowRef w, short* lastSeconds)
+{
+    GameUpdateTimer(&gGame);
+    if (w && GameGetElapsedSeconds(&gGame) != *lastSeconds && GameIsActive(&gGame)) {
+        *lastSeconds = GameGetElapsedSeconds(&gGame);
+        RedrawTimer(w);
+    }
+}
+
+static void HandleModalDialogUpdate(WindowRef mainWin, WindowPtr dlgWin, DialogPtr dlg, WindowPtr updateWin)
+{
+    if (updateWin == dlgWin) {
+        SetPort(dlgWin);
+        DrawDialog(dlg);
+        BeginUpdate(updateWin);
+        EndUpdate(updateWin);
+        return;
+    }
+
+    BeginUpdate(updateWin);
+    if (updateWin == mainWin && gMainWindowVisible) {
+        SetPort(mainWin);
+        if (gHelpDialogOpen) {
+            ClearBoardArea(mainWin);
+        }
+        DrawStatusBar(mainWin);
+    }
+    EndUpdate(updateWin);
+}
+
+static WindowPtr PrepareModalDialog(DialogPtr dlg)
+{
+    WindowPtr dlgWin = (WindowPtr)dlg;
+
+    ShowWindow(dlgWin);
+    SelectWindow(dlgWin);
+    SetPort(dlgWin);
+    DrawDialog(dlg);
+    return dlgWin;
+}
+
+static void FinishModalDialog(DialogPtr dlg, WindowRef mainWin)
+{
+    DisposeDialog(dlg);
+    FlushEvents(everyEvent, 0);
+    if (mainWin && gMainWindowVisible) {
+        SelectWindow(mainWin);
+    }
+}
+
+static pascal Boolean ModalTimerFilter(DialogPtr dlg, EventRecord* theEvent, short* itemHit)
+{
+    #pragma unused(dlg, theEvent, itemHit)
+    if (gMainWindow && gMainWindowVisible) {
+        ServiceActiveGameTimer(gMainWindow, &gModalTimerLastSeconds);
+    }
+    return false;
+}
+
+static short ShowDiscardConfirmDialog(WindowRef w)
+{
+    DialogPtr dlg;
+    short item = 0;
+    short confirmed = 0;
+
+    #pragma unused(w)
+
+    dlg = GetNewDialog(kDiscardDialog, NULL, (WindowPtr)-1);
+    if (!dlg) {
+        return 0;
+    }
+
+    gModalTimerLastSeconds = GameGetElapsedSeconds(&gGame);
+
+    for (;;) {
+        ModalDialog(ModalTimerFilter, &item);
+        if (item == kDialogItemDiscardYes) {
+            confirmed = 1;
+            break;
+        }
+        if (item == kDialogItemDiscardNo) {
+            break;
+        }
+    }
+
+    DisposeDialog(dlg);
+    FlushEvents(everyEvent, 0);
+    return confirmed;
+}
+
+static short ConfirmDiscardIfNeeded(WindowRef w)
+{
+    if (!GameIsActive(&gGame)) {
+        return 1;
+    }
+    return ShowDiscardConfirmDialog(w);
+}
+
 static void ShowHelpDialog(WindowRef w)
 {
     DialogPtr dlg;
@@ -574,33 +686,15 @@ static void ShowHelpDialog(WindowRef w)
         return;
     }
 
-    dlgWin = (WindowPtr)dlg;
-    SetPort(dlgWin);
-    DrawDialog(dlg);
+    dlgWin = PrepareModalDialog(dlg);
 
     for (;;) {
-        GameUpdateTimer(&gGame);
-        if (GameGetElapsedSeconds(&gGame) != lastSeconds
-            && GameGetStatus(&gGame) == kGamePlaying && gGame.firstClickDone) {
-            lastSeconds = GameGetElapsedSeconds(&gGame);
-            RedrawTimer(w);
-        }
-
+        ServiceActiveGameTimer(w, &lastSeconds);
         SystemTask();
 
         if (WaitNextEvent(everyEvent, &e, 15, NULL)) {
             if (e.what == updateEvt) {
-                WindowPtr updateWin = (WindowPtr)e.message;
-                BeginUpdate(updateWin);
-                if (updateWin == dlgWin) {
-                    SetPort(dlgWin);
-                    DrawDialog(dlg);
-                } else if (updateWin == w) {
-                    SetPort(w);
-                    ClearBoardArea(w);
-                    DrawStatusBar(w);
-                }
-                EndUpdate(updateWin);
+                HandleModalDialogUpdate(w, dlgWin, dlg, (WindowPtr)e.message);
             } else if (IsDialogEvent(&e)) {
                 DialogSelect(&e, dlg, &item);
                 if (item == kDialogItemHelpClose) {
@@ -610,9 +704,42 @@ static void ShowHelpDialog(WindowRef w)
         }
     }
 
-    DisposeDialog(dlg);
-    FlushEvents(everyEvent, 0);
+    FinishModalDialog(dlg, w);
     gHelpDialogOpen = 0;
+}
+
+static void RequestNewGame(GameDifficulty difficulty)
+{
+    if (!ConfirmDiscardIfNeeded(gMainWindow)) {
+        if (gMainWindow) {
+            RedrawFullWindow(gMainWindow);
+            SetPort(gMainWindow);
+            ValidRect(&gMainWindow->portRect);
+        }
+        return;
+    }
+    StartNewGame(difficulty);
+}
+
+static void RequestNewGameFromMenu(void)
+{
+    GameDifficulty difficulty;
+
+    if (!ConfirmDiscardIfNeeded(gMainWindow)) {
+        if (gMainWindow) {
+            RedrawFullWindow(gMainWindow);
+            SetPort(gMainWindow);
+            ValidRect(&gMainWindow->portRect);
+        }
+        return;
+    }
+    if (ShowDifficultyDialog(&difficulty)) {
+        StartNewGame(difficulty);
+    } else if (gMainWindow) {
+        RedrawFullWindow(gMainWindow);
+        SetPort(gMainWindow);
+        ValidRect(&gMainWindow->portRect);
+    }
 }
 
 static void StartNewGame(GameDifficulty difficulty)
@@ -631,6 +758,7 @@ static short ShowDifficultyDialog(GameDifficulty* difficulty)
     DialogPtr dlg;
     short item;
     short selected = 0;
+    ModalFilterUPP filter = NULL;
 
     dlg = GetNewDialog(kDifficultyDialog, NULL, (WindowPtr)-1);
     if (!dlg) {
@@ -638,8 +766,13 @@ static short ShowDifficultyDialog(GameDifficulty* difficulty)
         return 1;
     }
 
+    if (gMainWindowVisible && GameIsActive(&gGame)) {
+        gModalTimerLastSeconds = GameGetElapsedSeconds(&gGame);
+        filter = ModalTimerFilter;
+    }
+
     for (;;) {
-        ModalDialog(NULL, &item);
+        ModalDialog(filter, &item);
         if (item == kDialogItemBeginner) {
             *difficulty = kDifficultyBeginner;
             selected = 1;
@@ -683,21 +816,17 @@ static void DoMenuCommand(long menuCommand)
     } else if (menuID == kMenuGame) {
         switch (menuItem) {
             case kItemBeginner:
-                StartNewGame(kDifficultyBeginner);
+                RequestNewGame(kDifficultyBeginner);
                 break;
             case kItemIntermediate:
-                StartNewGame(kDifficultyIntermediate);
+                RequestNewGame(kDifficultyIntermediate);
                 break;
             case kItemExpert:
-                StartNewGame(kDifficultyExpert);
+                RequestNewGame(kDifficultyExpert);
                 break;
-            case kItemNewGame: {
-                GameDifficulty difficulty;
-                if (ShowDifficultyDialog(&difficulty)) {
-                    StartNewGame(difficulty);
-                }
+            case kItemNewGame:
+                RequestNewGameFromMenu();
                 break;
-            }
             case kItemQuit:
                 RequestQuit();
                 break;
@@ -711,7 +840,6 @@ static WindowRef NewMainWindow(void)
 {
     WindowRef w = GetNewWindow(128, NULL, (WindowPtr)-1);
     FillScreenWindow(w);
-    ShowWindow(w);
     SetPort(w);
     return w;
 }
@@ -742,6 +870,11 @@ int main(void)
             StartNewGame(difficulty);
         }
     }
+    if (!gDone) {
+        ShowWindow(gMainWindow);
+        SelectWindow(gMainWindow);
+        gMainWindowVisible = 1;
+    }
 
     for (;;) {
         if (gDone) {
@@ -751,7 +884,7 @@ int main(void)
         SystemTask();
         GameUpdateTimer(&gGame);
         if (gMainWindow && GameGetElapsedSeconds(&gGame) != oldSeconds
-            && GameGetStatus(&gGame) == kGamePlaying && gGame.firstClickDone) {
+            && GameIsActive(&gGame)) {
             oldSeconds = GameGetElapsedSeconds(&gGame);
             RedrawTimer(gMainWindow);
         }

@@ -373,6 +373,11 @@ GameDifficulty GameGetDifficulty(const GameState* game)
     return game->difficulty;
 }
 
+short GameIsActive(const GameState* game)
+{
+    return game->status == kGamePlaying && game->firstClickDone;
+}
+
 short GameIsRevealed(const GameState* game, short x, short y)
 {
     if (!GameInBounds(game, x, y)) {

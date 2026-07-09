@@ -91,6 +91,30 @@ resource 'DITL' (130) {
     }
 };
 
+resource 'DLOG' (131) {
+    { 80, 100, 180, 340 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    131,
+    "",
+    centerMainScreen
+};
+
+resource 'DITL' (131) {
+    {
+        { 20, 16, 36, 224 },
+        StaticText { disabled, "Discard Current Game?" };
+
+        { 52, 40, 72, 100 },
+        Button { enabled, "Yes" };
+
+        { 52, 140, 72, 200 },
+        Button { enabled, "No" };
+    }
+};
+
 resource 'WIND' (128) {
     {20, 0, 342, 512}, noGrowDocProc;
     invisible;
