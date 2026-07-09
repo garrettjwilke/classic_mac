@@ -34,6 +34,7 @@ TILES = [
     ("face_surprised.png", 142, "surprise"),
     ("face_dead.png", 143, "dead"),
     ("face_cool.png", 144, "cool"),
+    ("timer.png", 146, "T"),
 ]
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,6 +65,8 @@ def pixel_is_foreground(label: str, x: int, y: int) -> bool:
         return (x in (4, 5, 10, 11) and y in (5, 6)) or (dx <= 1 and dy == 9)
     if label == "cool":
         return (dx == 3 and dy in (5, 6)) or (3 <= x <= 11 and y == 9)
+    if label == "T":
+        return (5 <= x <= 10 and 3 <= y <= 5) or (x in (5, 10) and 3 <= y <= 11) or (5 <= x <= 10 and y == 11)
     return False
 
 

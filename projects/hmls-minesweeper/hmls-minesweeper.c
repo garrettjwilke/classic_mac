@@ -34,6 +34,7 @@ enum {
     kStatusBarHeight = 16,
     kStatusPadding = 4,
     kStatusItemGap = 8,
+    kCounterTileGap = 2,
     kCounterWidth = 39,
     kHelpButtonWidth = 48
 };
@@ -68,7 +69,7 @@ static short gDone;
 
 static void FillScreenWindow(WindowRef w);
 static void GetBoardLayout(WindowRef w, Rect* boardRect, Rect* statusRect, Rect* faceRect);
-static void GetStatusLayout(WindowRef w, Rect* mineCounter, Rect* timerCounter, Rect* faceRect, Rect* helpRect);
+static void GetStatusLayout(WindowRef w, Rect* mineTile, Rect* mineCounter, Rect* timerTile, Rect* timerCounter, Rect* faceRect, Rect* helpRect);
 static void DrawStatusBar(WindowRef w);
 static void DrawBoard(WindowRef w);
 static void DoUpdate(WindowRef w);
@@ -168,23 +169,36 @@ static void GetBoardLayout(WindowRef w, Rect* boardRect, Rect* statusRect, Rect*
         (short)(port.top + (kStatusBarHeight - kTileSize) / 2 + kTileSize));
 }
 
-static void GetStatusLayout(WindowRef w, Rect* mineCounter, Rect* timerCounter, Rect* faceRect, Rect* helpRect)
+static void GetStatusLayout(WindowRef w, Rect* mineTile, Rect* mineCounter, Rect* timerTile, Rect* timerCounter, Rect* faceRect, Rect* helpRect)
 {
     Rect boardRect;
     Rect statusRect;
+    short barTop = w->portRect.top;
 
     GetBoardLayout(w, &boardRect, &statusRect, faceRect);
 
-    SetRect(mineCounter,
+    SetRect(mineTile,
         (short)(w->portRect.left + kStatusPadding),
-        (short)(w->portRect.top + 1),
-        (short)(w->portRect.left + kStatusPadding + kCounterWidth),
-        (short)(w->portRect.top + kStatusBarHeight - 1));
+        (short)(barTop + (kStatusBarHeight - kTileSize) / 2),
+        (short)(w->portRect.left + kStatusPadding + kTileSize),
+        (short)(barTop + (kStatusBarHeight - kTileSize) / 2 + kTileSize));
+
+    SetRect(mineCounter,
+        (short)(mineTile->right + kCounterTileGap),
+        (short)(barTop + 1),
+        (short)(mineTile->right + kCounterTileGap + kCounterWidth),
+        (short)(barTop + kStatusBarHeight - 1));
+
+    SetRect(timerTile,
+        (short)(mineCounter->right + kStatusItemGap),
+        mineTile->top,
+        (short)(mineCounter->right + kStatusItemGap + kTileSize),
+        mineTile->bottom);
 
     SetRect(timerCounter,
-        (short)(mineCounter->right + kStatusItemGap),
+        (short)(timerTile->right + kCounterTileGap),
         mineCounter->top,
-        (short)(mineCounter->right + kStatusItemGap + kCounterWidth),
+        (short)(timerTile->right + kCounterTileGap + kCounterWidth),
         mineCounter->bottom);
 
     SetRect(helpRect,
@@ -192,6 +206,21 @@ static void GetStatusLayout(WindowRef w, Rect* mineCounter, Rect* timerCounter, 
         mineCounter->top,
         (short)(w->portRect.right - kStatusPadding),
         mineCounter->bottom);
+}
+
+static void DrawStatusCounterGroup(const Rect* tileRect, const Rect* counterRect, short tileID, short value)
+{
+    Rect group;
+
+    SetRect(&group,
+        tileRect->left,
+        counterRect->top,
+        counterRect->right,
+        counterRect->bottom);
+    PenNormal();
+    FillRect(&group, &qd.ltGray);
+    DrawTile(tileID, tileRect);
+    DrawCounter(value, counterRect);
 }
 
 static void DrawCounter(short value, const Rect* area)
@@ -241,37 +270,43 @@ static void DrawHelpButton(const Rect* area)
 
 static void RedrawTimer(WindowRef w)
 {
+    Rect mineTile;
     Rect mineCounter;
+    Rect timerTile;
     Rect timerCounter;
     Rect faceRect;
     Rect helpRect;
 
     SetPort(w);
-    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
-    DrawCounter(GameGetElapsedSeconds(&gGame), &timerCounter);
+    GetStatusLayout(w, &mineTile, &mineCounter, &timerTile, &timerCounter, &faceRect, &helpRect);
+    DrawStatusCounterGroup(&timerTile, &timerCounter, kTileTimer, GameGetElapsedSeconds(&gGame));
 }
 
 static void RedrawMineCounter(WindowRef w)
 {
+    Rect mineTile;
     Rect mineCounter;
+    Rect timerTile;
     Rect timerCounter;
     Rect faceRect;
     Rect helpRect;
 
     SetPort(w);
-    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
-    DrawCounter(GameGetRemainingMines(&gGame), &mineCounter);
+    GetStatusLayout(w, &mineTile, &mineCounter, &timerTile, &timerCounter, &faceRect, &helpRect);
+    DrawStatusCounterGroup(&mineTile, &mineCounter, kTileFlag, GameGetRemainingMines(&gGame));
 }
 
 static void RedrawFace(WindowRef w)
 {
+    Rect mineTile;
     Rect mineCounter;
+    Rect timerTile;
     Rect timerCounter;
     Rect faceRect;
     Rect helpRect;
 
     SetPort(w);
-    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
+    GetStatusLayout(w, &mineTile, &mineCounter, &timerTile, &timerCounter, &faceRect, &helpRect);
     DrawTile(FaceTileForGame(&gGame, gFacePressed), &faceRect);
 }
 
@@ -334,19 +369,21 @@ static void DrawStatusBar(WindowRef w)
     Rect statusRect;
     Rect boardRect;
     Rect faceRect;
+    Rect mineTile;
     Rect mineCounter;
+    Rect timerTile;
     Rect timerCounter;
     Rect helpRect;
 
     GetBoardLayout(w, &boardRect, &statusRect, &faceRect);
-    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
+    GetStatusLayout(w, &mineTile, &mineCounter, &timerTile, &timerCounter, &faceRect, &helpRect);
 
     PenNormal();
     FillRect(&statusRect, &qd.ltGray);
     FrameRect(&statusRect);
 
-    DrawCounter(GameGetRemainingMines(&gGame), &mineCounter);
-    DrawCounter(GameGetElapsedSeconds(&gGame), &timerCounter);
+    DrawStatusCounterGroup(&mineTile, &mineCounter, kTileFlag, GameGetRemainingMines(&gGame));
+    DrawStatusCounterGroup(&timerTile, &timerCounter, kTileTimer, GameGetElapsedSeconds(&gGame));
     DrawTile(FaceTileForGame(&gGame, gFacePressed), &faceRect);
     DrawHelpButton(&helpRect);
 }
@@ -493,12 +530,14 @@ static short PointInFace(Point localPt, WindowRef w)
 
 static short PointInHelp(Point localPt, WindowRef w)
 {
+    Rect mineTile;
     Rect mineCounter;
+    Rect timerTile;
     Rect timerCounter;
     Rect faceRect;
     Rect helpRect;
 
-    GetStatusLayout(w, &mineCounter, &timerCounter, &faceRect, &helpRect);
+    GetStatusLayout(w, &mineTile, &mineCounter, &timerTile, &timerCounter, &faceRect, &helpRect);
     return PtInRect(localPt, &helpRect);
 }
 

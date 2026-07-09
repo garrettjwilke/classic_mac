@@ -21,6 +21,7 @@ set(TILE_PNGS
     ${CMAKE_CURRENT_SOURCE_DIR}/tiles/face_surprised.png
     ${CMAKE_CURRENT_SOURCE_DIR}/tiles/face_dead.png
     ${CMAKE_CURRENT_SOURCE_DIR}/tiles/face_cool.png
+    ${CMAKE_CURRENT_SOURCE_DIR}/tiles/timer.png
 )
 
 add_custom_command(

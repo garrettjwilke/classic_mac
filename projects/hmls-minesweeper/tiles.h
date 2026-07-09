@@ -23,7 +23,8 @@ enum {
     kTileFaceSurprised,
     kTileFaceDead,
     kTileFaceCool,
-    kTileUnsure
+    kTileUnsure,
+    kTileTimer
 };
 
 void DrawTile(short tileID, const Rect* destRect);
