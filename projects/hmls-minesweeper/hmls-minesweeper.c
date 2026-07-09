@@ -53,6 +53,7 @@ static void RedrawMineCounter(WindowRef w);
 static void RedrawFace(WindowRef w);
 static void RedrawCell(WindowRef w, short x, short y);
 static void RedrawChangedCells(WindowRef w);
+static void RedrawFullWindow(WindowRef w);
 static void DoContentClick(WindowRef w, Point localPt, short optionKey);
 static void ShowAboutBox(void);
 static void DoMenuCommand(long menuCommand);
@@ -381,6 +382,7 @@ static void DoUpdate(WindowRef w)
 
     SetPort(w);
     BeginUpdate(w);
+    EraseRgn(((GrafPtr)w)->visRgn);
 
     GetBoardLayout(w, &boardRect, &statusRect, &faceRect);
     if (RectInRgn(&statusRect, ((GrafPtr)w)->visRgn)) {
@@ -391,6 +393,14 @@ static void DoUpdate(WindowRef w)
     }
 
     EndUpdate(w);
+}
+
+static void RedrawFullWindow(WindowRef w)
+{
+    SetPort(w);
+    EraseRect(&w->portRect);
+    DrawStatusBar(w);
+    DrawBoard(w);
 }
 
 static void PointToCell(Point localPt, WindowRef w, short* outX, short* outY)
@@ -429,7 +439,6 @@ static void DoContentClick(WindowRef w, Point localPt, short optionKey)
 
     if (PointInFace(localPt, w)) {
         StartNewGame(GameGetDifficulty(&gGame));
-        InvalidateWindow(w);
         return;
     }
 
@@ -489,7 +498,7 @@ static void StartNewGame(GameDifficulty difficulty)
     gFacePressed = 0;
     GameNewDifficulty(&gGame, difficulty);
     if (gMainWindow) {
-        InvalidateWindow(gMainWindow);
+        RedrawFullWindow(gMainWindow);
     }
 }
 
@@ -518,10 +527,7 @@ static void DoMenuCommand(long menuCommand)
                 StartNewGame(kDifficultyExpert);
                 break;
             case kItemNewGame:
-                GameRestart(&gGame);
-                if (gMainWindow) {
-                    InvalidateWindow(gMainWindow);
-                }
+                StartNewGame(GameGetDifficulty(&gGame));
                 break;
             case kItemQuit:
                 RequestQuit();
