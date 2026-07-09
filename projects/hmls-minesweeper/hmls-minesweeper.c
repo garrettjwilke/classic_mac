@@ -55,6 +55,7 @@ static WindowRef gMainWindow;
 static GameState gGame;
 static short gMouseDownInContent;
 static short gFacePressed;
+static short gHelpDialogOpen;
 static short gDone;
 
 static void FillScreenWindow(WindowRef w);
@@ -70,9 +71,10 @@ static void RedrawFace(WindowRef w);
 static void RedrawCell(WindowRef w, short x, short y);
 static void RedrawChangedCells(WindowRef w);
 static void RedrawFullWindow(WindowRef w);
+static void ClearBoardArea(WindowRef w);
 static void DoContentClick(WindowRef w, Point localPt, short optionKey);
 static void ShowAboutBox(void);
-static void ShowHelpDialog(void);
+static void ShowHelpDialog(WindowRef w);
 static void DoMenuCommand(long menuCommand);
 static void StartNewGame(GameDifficulty difficulty);
 static short ShowDifficultyDialog(GameDifficulty* difficulty);
@@ -415,10 +417,27 @@ static void DoUpdate(WindowRef w)
         DrawStatusBar(w);
     }
     if (RectInRgn(&boardRect, ((GrafPtr)w)->visRgn)) {
-        DrawBoard(w);
+        if (gHelpDialogOpen) {
+            PenNormal();
+            FillRect(&boardRect, &qd.white);
+        } else {
+            DrawBoard(w);
+        }
     }
 
     EndUpdate(w);
+}
+
+static void ClearBoardArea(WindowRef w)
+{
+    Rect boardRect;
+    Rect statusRect;
+    Rect faceRect;
+
+    SetPort(w);
+    GetBoardLayout(w, &boardRect, &statusRect, &faceRect);
+    PenNormal();
+    FillRect(&boardRect, &qd.white);
 }
 
 static void RedrawFullWindow(WindowRef w)
@@ -475,7 +494,7 @@ static void DoContentClick(WindowRef w, Point localPt, short optionKey)
     short y;
 
     if (PointInHelp(localPt, w)) {
-        ShowHelpDialog();
+        ShowHelpDialog(w);
         RedrawFullWindow(w);
         SetPort(w);
         ValidRect(&w->portRect);
@@ -538,22 +557,62 @@ static void ShowAboutBox(void)
     DisposeWindow(w);
 }
 
-static void ShowHelpDialog(void)
+static void ShowHelpDialog(WindowRef w)
 {
     DialogPtr dlg;
-    short item;
+    WindowPtr dlgWin;
+    short item = 0;
+    EventRecord e;
+    short lastSeconds = GameGetElapsedSeconds(&gGame);
+
+    gHelpDialogOpen = 1;
+    ClearBoardArea(w);
 
     dlg = GetNewDialog(kHelpDialog, NULL, (WindowPtr)-1);
     if (!dlg) {
+        gHelpDialogOpen = 0;
         return;
     }
 
-    do {
-        ModalDialog(NULL, &item);
-    } while (item != kDialogItemHelpClose);
+    dlgWin = (WindowPtr)dlg;
+    SetPort(dlgWin);
+    DrawDialog(dlg);
+
+    for (;;) {
+        GameUpdateTimer(&gGame);
+        if (GameGetElapsedSeconds(&gGame) != lastSeconds
+            && GameGetStatus(&gGame) == kGamePlaying && gGame.firstClickDone) {
+            lastSeconds = GameGetElapsedSeconds(&gGame);
+            RedrawTimer(w);
+        }
+
+        SystemTask();
+
+        if (WaitNextEvent(everyEvent, &e, 15, NULL)) {
+            if (e.what == updateEvt) {
+                WindowPtr updateWin = (WindowPtr)e.message;
+                BeginUpdate(updateWin);
+                if (updateWin == dlgWin) {
+                    SetPort(dlgWin);
+                    DrawDialog(dlg);
+                } else if (updateWin == w) {
+                    SetPort(w);
+                    ClearBoardArea(w);
+                    DrawStatusBar(w);
+                }
+                EndUpdate(updateWin);
+            } else if (IsDialogEvent(&e)) {
+                DialogSelect(&e, dlg, &item);
+                if (item == kDialogItemHelpClose) {
+                    break;
+                }
+            }
+        }
+    }
 
     DisposeDialog(dlg);
     FlushEvents(everyEvent, 0);
+    gHelpDialogOpen = 0;
 }
 
 static void StartNewGame(GameDifficulty difficulty)
