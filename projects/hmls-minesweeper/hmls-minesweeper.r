@@ -2,6 +2,7 @@
 #include "Menus.r"
 #include "Windows.r"
 #include "MacTypes.r"
+#include "Dialogs.r"
 
 resource 'MENU' (128) {
     128, textMenuProc;
@@ -30,6 +31,36 @@ resource 'MENU' (129) {
 
 resource 'MBAR' (128) {
     { 128, 129 };
+};
+
+resource 'DLOG' (129) {
+    { 80, 80, 230, 424 },
+    dBoxProc,
+    visible,
+    noGoAway,
+    0,
+    129,
+    "New Game",
+    centerMainScreen
+};
+
+resource 'DITL' (129) {
+    {
+        { 12, 16, 28, 328 },
+        StaticText { disabled, "Choose a difficulty:" };
+
+        { 44, 16, 64, 112 },
+        Button { enabled, "Beginner" };
+
+        { 44, 120, 64, 216 },
+        Button { enabled, "Intermediate" };
+
+        { 44, 224, 64, 320 },
+        Button { enabled, "Expert" };
+
+        { 80, 120, 100, 216 },
+        Button { enabled, "Quit Game" };
+    }
 };
 
 resource 'WIND' (128) {

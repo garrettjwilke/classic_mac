@@ -35,6 +35,14 @@ enum {
     kStatusPadding = 4
 };
 
+enum {
+    kDifficultyDialog = 129,
+    kDialogItemBeginner = 2,
+    kDialogItemIntermediate = 3,
+    kDialogItemExpert = 4,
+    kDialogItemQuit = 5
+};
+
 static WindowRef gMainWindow;
 static GameState gGame;
 static short gMouseDownInContent;
@@ -58,6 +66,7 @@ static void DoContentClick(WindowRef w, Point localPt, short optionKey);
 static void ShowAboutBox(void);
 static void DoMenuCommand(long menuCommand);
 static void StartNewGame(GameDifficulty difficulty);
+static short ShowDifficultyDialog(GameDifficulty* difficulty);
 static short TileForCell(const GameState* game, short x, short y);
 static short FaceTileForGame(const GameState* game, short pressed);
 static void RequestQuit(void);
@@ -502,6 +511,47 @@ static void StartNewGame(GameDifficulty difficulty)
     }
 }
 
+static short ShowDifficultyDialog(GameDifficulty* difficulty)
+{
+    DialogPtr dlg;
+    short item;
+    short selected = 0;
+
+    dlg = GetNewDialog(kDifficultyDialog, NULL, (WindowPtr)-1);
+    if (!dlg) {
+        *difficulty = kDifficultyBeginner;
+        return 1;
+    }
+
+    for (;;) {
+        ModalDialog(NULL, &item);
+        if (item == kDialogItemBeginner) {
+            *difficulty = kDifficultyBeginner;
+            selected = 1;
+            break;
+        }
+        if (item == kDialogItemIntermediate) {
+            *difficulty = kDifficultyIntermediate;
+            selected = 1;
+            break;
+        }
+        if (item == kDialogItemExpert) {
+            *difficulty = kDifficultyExpert;
+            selected = 1;
+            break;
+        }
+        if (item == kDialogItemQuit) {
+            RequestQuit();
+            selected = 0;
+            break;
+        }
+    }
+
+    DisposeDialog(dlg);
+    FlushEvents(everyEvent, 0);
+    return selected;
+}
+
 static void DoMenuCommand(long menuCommand)
 {
     short menuID = menuCommand >> 16;
@@ -526,9 +576,13 @@ static void DoMenuCommand(long menuCommand)
             case kItemExpert:
                 StartNewGame(kDifficultyExpert);
                 break;
-            case kItemNewGame:
-                StartNewGame(GameGetDifficulty(&gGame));
+            case kItemNewGame: {
+                GameDifficulty difficulty;
+                if (ShowDifficultyDialog(&difficulty)) {
+                    StartNewGame(difficulty);
+                }
                 break;
+            }
             case kItemQuit:
                 RequestQuit();
                 break;
@@ -566,8 +620,13 @@ int main(void)
     InitCursor();
 
     GameInit(&gGame);
-    StartNewGame(kDifficultyBeginner);
     gMainWindow = NewMainWindow();
+    {
+        GameDifficulty difficulty;
+        if (ShowDifficultyDialog(&difficulty)) {
+            StartNewGame(difficulty);
+        }
+    }
 
     for (;;) {
         if (gDone) {
