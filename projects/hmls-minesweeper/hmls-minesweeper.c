@@ -292,7 +292,7 @@ static void DrawCounterValue(short value, const Rect* area, short drawFrame)
     TextFont(1);
     TextSize(12);
     TextFace(bold);
-    MoveTo((short)(box.left + 4), (short)(box.bottom - 3));
+    MoveTo((short)(box.left + 4), (short)(box.bottom - 1));
     DrawString(text);
     TextFace(0);
 }
