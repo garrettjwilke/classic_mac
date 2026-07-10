@@ -223,11 +223,8 @@ static void DrawStatusCounterGroup(const Rect* tileRect, const Rect* counterRect
     DrawCounter(value, counterRect);
 }
 
-static void DrawCounter(short value, const Rect* area)
+static void FormatCounterText(short value, Str255 text)
 {
-    Str255 text;
-    Rect box = *area;
-
     if (value < 0) {
         value = 0;
     }
@@ -239,17 +236,37 @@ static void DrawCounter(short value, const Rect* area)
     text[1] = (unsigned char)('0' + (value / 100) % 10);
     text[2] = (unsigned char)('0' + (value / 10) % 10);
     text[3] = (unsigned char)('0' + value % 10);
+}
+
+static void DrawCounterValue(short value, const Rect* area, short drawFrame)
+{
+    Str255 text;
+    Rect box = *area;
+
+    FormatCounterText(value, text);
 
     PenNormal();
-    FillRect(&box, &qd.white);
-    FrameRect(&box);
-    InsetRect(&box, 2, 1);
+    if (drawFrame) {
+        FillRect(&box, &qd.white);
+        FrameRect(&box);
+        InsetRect(&box, 2, 1);
+    } else {
+        /* Leave the existing border; only refresh the digits. */
+        InsetRect(&box, 1, 1);
+        FillRect(&box, &qd.white);
+        InsetRect(&box, 1, 0);
+    }
     TextFont(1);
     TextSize(12);
     TextFace(bold);
     MoveTo((short)(box.left + 4), (short)(box.bottom - 3));
     DrawString(text);
     TextFace(0);
+}
+
+static void DrawCounter(short value, const Rect* area)
+{
+    DrawCounterValue(value, area, 1);
 }
 
 static void DrawHelpButton(const Rect* area)
@@ -279,7 +296,7 @@ static void RedrawTimer(WindowRef w)
 
     SetPort(w);
     GetStatusLayout(w, &mineTile, &mineCounter, &timerTile, &timerCounter, &faceRect, &helpRect);
-    DrawStatusCounterGroup(&timerTile, &timerCounter, kTileTimer, GameGetElapsedSeconds(&gGame));
+    DrawCounterValue(GameGetElapsedSeconds(&gGame), &timerCounter, 0);
 }
 
 static void RedrawMineCounter(WindowRef w)
@@ -293,7 +310,7 @@ static void RedrawMineCounter(WindowRef w)
 
     SetPort(w);
     GetStatusLayout(w, &mineTile, &mineCounter, &timerTile, &timerCounter, &faceRect, &helpRect);
-    DrawStatusCounterGroup(&mineTile, &mineCounter, kTileFlag, GameGetRemainingMines(&gGame));
+    DrawCounterValue(GameGetRemainingMines(&gGame), &mineCounter, 0);
 }
 
 static void RedrawFace(WindowRef w)
