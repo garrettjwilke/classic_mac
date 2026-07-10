@@ -67,6 +67,7 @@ static short gHelpDialogOpen;
 static short gMainWindowVisible;
 static short gModalTimerLastSeconds;
 static short gDone;
+static short gMarkCursorActive;
 
 static void FillScreenWindow(WindowRef w);
 static void GetBoardLayout(WindowRef w, Rect* boardRect, Rect* statusRect, Rect* faceRect);
@@ -98,6 +99,7 @@ static short TileForCell(const GameState* game, short x, short y);
 static short FaceTileForGame(const GameState* game, short pressed);
 static void RequestQuit(void);
 static void CleanupApplication(void);
+static void UpdateMarkCursor(void);
 
 static void RequestQuit(void)
 {
@@ -106,6 +108,10 @@ static void RequestQuit(void)
 
 static void CleanupApplication(void)
 {
+    if (gMarkCursorActive) {
+        SetCursor(&qd.arrow);
+        gMarkCursorActive = 0;
+    }
     if (gMainWindow) {
         DisposeWindow(gMainWindow);
         gMainWindow = NULL;
@@ -113,6 +119,31 @@ static void CleanupApplication(void)
     GameDispose(&gGame);
     DisposeTiles();
     FlushEvents(everyEvent, 0);
+}
+
+static void UpdateMarkCursor(void)
+{
+    EventRecord probe;
+    short wantMark;
+    CursHandle cross;
+
+    EventAvail(everyEvent, &probe);
+    wantMark = (probe.modifiers & (optionKey | cmdKey)) != 0;
+
+    if (wantMark == gMarkCursorActive) {
+        return;
+    }
+
+    if (wantMark) {
+        cross = GetCursor(crossCursor);
+        if (cross != NULL) {
+            SetCursor(*cross);
+            gMarkCursorActive = 1;
+        }
+    } else {
+        SetCursor(&qd.arrow);
+        gMarkCursorActive = 0;
+    }
 }
 
 static void InvalidateWindow(WindowRef w)
@@ -982,6 +1013,7 @@ int main(void)
         }
 
         SystemTask();
+        UpdateMarkCursor();
         GameUpdateTimer(&gGame);
         if (gMainWindow && GameGetElapsedSeconds(&gGame) != oldSeconds
             && GameIsActive(&gGame)) {
