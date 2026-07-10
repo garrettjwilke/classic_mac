@@ -27,6 +27,10 @@ enum {
     kTileTimer
 };
 
+void InitTiles(void);
+void DisposeTiles(void);
 void DrawTile(short tileID, const Rect* destRect);
+short BeginBoardCompose(short pixelWidth, short pixelHeight);
+void EndBoardCompose(GrafPtr destPort, const Rect* destRect);
 
 #endif

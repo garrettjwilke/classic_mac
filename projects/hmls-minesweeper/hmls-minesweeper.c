@@ -111,6 +111,7 @@ static void CleanupApplication(void)
         gMainWindow = NULL;
     }
     GameDispose(&gGame);
+    DisposeTiles();
     FlushEvents(everyEvent, 0);
 }
 
@@ -348,8 +349,6 @@ static void RedrawCell(WindowRef w, short x, short y)
 
     SetPort(w);
     CellRect(w, x, y, &tileRect);
-    PenNormal();
-    FillRect(&tileRect, &qd.white);
     DrawTile(TileForCell(&gGame, x, y), &tileRect);
 }
 
@@ -467,23 +466,46 @@ static void DrawBoard(WindowRef w)
     Rect tileRect;
     short x;
     short y;
+    short width;
+    short height;
+    short composed;
 
     GetBoardLayout(w, &boardRect, &statusRect, &faceRect);
 
-    PenNormal();
-    FillRect(&boardRect, &qd.white);
+    width = (short)(boardRect.right - boardRect.left);
+    height = (short)(boardRect.bottom - boardRect.top);
+    composed = BeginBoardCompose(width, height);
+
+    if (!composed) {
+        SetPort(w);
+        PenNormal();
+        FillRect(&boardRect, &qd.white);
+    }
 
     for (y = 0; y < GameGetHeight(&gGame); ++y) {
         for (x = 0; x < GameGetWidth(&gGame); ++x) {
-            SetRect(&tileRect,
-                (short)(boardRect.left + x * kTileSize),
-                (short)(boardRect.top + y * kTileSize),
-                (short)(boardRect.left + (x + 1) * kTileSize),
-                (short)(boardRect.top + (y + 1) * kTileSize));
+            if (composed) {
+                SetRect(&tileRect,
+                    (short)(x * kTileSize),
+                    (short)(y * kTileSize),
+                    (short)((x + 1) * kTileSize),
+                    (short)((y + 1) * kTileSize));
+            } else {
+                SetRect(&tileRect,
+                    (short)(boardRect.left + x * kTileSize),
+                    (short)(boardRect.top + y * kTileSize),
+                    (short)(boardRect.left + (x + 1) * kTileSize),
+                    (short)(boardRect.top + (y + 1) * kTileSize));
+            }
             DrawTile(TileForCell(&gGame, x, y), &tileRect);
         }
     }
 
+    if (composed) {
+        EndBoardCompose((GrafPtr)w, &boardRect);
+    }
+
+    SetPort(w);
     DrawBoardFrame(&boardRect);
 }
 
@@ -939,6 +961,7 @@ int main(void)
     DrawMenuBar();
     InitCursor();
 
+    InitTiles();
     GameInit(&gGame);
     gMainWindow = NewMainWindow();
     {
