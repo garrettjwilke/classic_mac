@@ -78,7 +78,7 @@ resource 'DITL' (130) {
     {
         { 12, 16, 138, 314 },
         StaticText { disabled,
-            "Hold the Option key and click a tile\r"
+            "Hold Option or Command and click a tile\r"
             "to place flags or question blocks.\r\r"
             "To start a new game with a specific mode:\r"
             "CMD + 1 = Beginner\r"
@@ -126,7 +126,7 @@ resource 'WIND' (128) {
 data 'TEXT' (128) {
     "Minesweeper for Classic Mac\r\r"
     "Left click to reveal.\r"
-    "Option-click to cycle flag/unsure.\r\r"
+    "Option/Command-click to cycle flag/unsure.\r\r"
     "Built with Retro68."
 };
 

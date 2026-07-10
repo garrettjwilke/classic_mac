@@ -81,7 +81,7 @@ static void RedrawCell(WindowRef w, short x, short y);
 static void RedrawChangedCells(WindowRef w);
 static void RedrawFullWindow(WindowRef w);
 static void ClearBoardArea(WindowRef w);
-static void DoContentClick(WindowRef w, Point localPt, short optionKey);
+static void DoContentClick(WindowRef w, Point localPt, short markKey);
 static void ShowAboutBox(void);
 static void ShowHelpDialog(WindowRef w);
 static short ShowDiscardConfirmDialog(WindowRef w);
@@ -541,7 +541,7 @@ static short PointInHelp(Point localPt, WindowRef w)
     return PtInRect(localPt, &helpRect);
 }
 
-static void DoContentClick(WindowRef w, Point localPt, short optionKey)
+static void DoContentClick(WindowRef w, Point localPt, short markKey)
 {
     short x;
     short y;
@@ -568,7 +568,7 @@ static void DoContentClick(WindowRef w, Point localPt, short optionKey)
         return;
     }
 
-    if (optionKey) {
+    if (markKey) {
         GameCycleMark(&gGame, x, y);
         RedrawMineCounter(w);
     } else {
@@ -974,7 +974,8 @@ int main(void)
                         short wasFacePressed = gFacePressed;
                         SetPort(gMainWindow);
                         GlobalToLocal(&localPt);
-                        DoContentClick(gMainWindow, localPt, (e.modifiers & optionKey) != 0);
+                        DoContentClick(gMainWindow, localPt,
+                            (e.modifiers & (optionKey | cmdKey)) != 0);
                         gFacePressed = 0;
                         if (wasFacePressed) {
                             RedrawFace(gMainWindow);
