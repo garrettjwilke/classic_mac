@@ -36,7 +36,8 @@ enum {
     kStatusItemGap = 8,
     kCounterTileGap = 2,
     kCounterWidth = 39,
-    kHelpButtonWidth = 48
+    kHelpButtonWidth = 48,
+    kBoardFrameInset = 1
 };
 
 enum {
@@ -443,6 +444,21 @@ static short TileForCell(const GameState* game, short x, short y)
     }
 }
 
+static void GetBoardFrameRect(const Rect* boardRect, Rect* frameRect)
+{
+    *frameRect = *boardRect;
+    InsetRect(frameRect, (short)(-kBoardFrameInset), (short)(-kBoardFrameInset));
+}
+
+static void DrawBoardFrame(const Rect* boardRect)
+{
+    Rect frameRect;
+
+    GetBoardFrameRect(boardRect, &frameRect);
+    PenNormal();
+    FrameRect(&frameRect);
+}
+
 static void DrawBoard(WindowRef w)
 {
     Rect boardRect;
@@ -456,7 +472,6 @@ static void DrawBoard(WindowRef w)
 
     PenNormal();
     FillRect(&boardRect, &qd.white);
-    FrameRect(&boardRect);
 
     for (y = 0; y < GameGetHeight(&gGame); ++y) {
         for (x = 0; x < GameGetWidth(&gGame); ++x) {
@@ -468,6 +483,8 @@ static void DrawBoard(WindowRef w)
             DrawTile(TileForCell(&gGame, x, y), &tileRect);
         }
     }
+
+    DrawBoardFrame(&boardRect);
 }
 
 static void DoUpdate(WindowRef w)
@@ -475,19 +492,21 @@ static void DoUpdate(WindowRef w)
     Rect boardRect;
     Rect statusRect;
     Rect faceRect;
+    Rect frameRect;
 
     SetPort(w);
     BeginUpdate(w);
     EraseRgn(((GrafPtr)w)->visRgn);
 
     GetBoardLayout(w, &boardRect, &statusRect, &faceRect);
+    GetBoardFrameRect(&boardRect, &frameRect);
     if (RectInRgn(&statusRect, ((GrafPtr)w)->visRgn)) {
         DrawStatusBar(w);
     }
-    if (RectInRgn(&boardRect, ((GrafPtr)w)->visRgn)) {
+    if (RectInRgn(&frameRect, ((GrafPtr)w)->visRgn)) {
         if (gHelpDialogOpen) {
             PenNormal();
-            FillRect(&boardRect, &qd.white);
+            FillRect(&frameRect, &qd.white);
         } else {
             DrawBoard(w);
         }
@@ -501,11 +520,13 @@ static void ClearBoardArea(WindowRef w)
     Rect boardRect;
     Rect statusRect;
     Rect faceRect;
+    Rect frameRect;
 
     SetPort(w);
     GetBoardLayout(w, &boardRect, &statusRect, &faceRect);
+    GetBoardFrameRect(&boardRect, &frameRect);
     PenNormal();
-    FillRect(&boardRect, &qd.white);
+    FillRect(&frameRect, &qd.white);
 }
 
 static void RedrawFullWindow(WindowRef w)
