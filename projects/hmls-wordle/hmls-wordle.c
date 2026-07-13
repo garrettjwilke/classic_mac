@@ -36,6 +36,7 @@ enum {
     kContentPad = 2,
     kAlphabetTopPad = 8,
     kAlphabetKeyWidth = 18,
+    kAlphabetSpecialWidth = 28,
     kAlphabetKeyHeight = 12,
     kAlphabetKeyGap = 2,
     kAlphabetRowGap = 3,
@@ -76,7 +77,13 @@ static void RedrawRow(WindowRef w, short row);
 static void RedrawMessageBar(WindowRef w);
 static void RedrawAlphabet(WindowRef w);
 static void HandleLetter(char code);
+static void HandleSubmit(void);
+static void HandleBackspace(void);
 static void HandleKey(long message, short modifiers);
+static short AlphabetKeyWidthFor(char code);
+static short AlphabetRowWidth(const char* row);
+static void DrawEnterGlyph(const Rect* key);
+static void DrawBackspaceGlyph(const Rect* key);
 static char HitTestAlphabet(WindowRef w, Point localPt);
 static void HandleContentClick(WindowRef w, Point globalPt);
 static void ShowAboutBox(void);
@@ -112,7 +119,9 @@ static void SizeToContent(WindowRef w)
     Rect screen = qd.screenBits.bounds;
     short gridWidth = (short)(kWordLength * kTileSize + (kWordLength - 1) * kTileGap);
     short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
-    short alphabetWidth = (short)(10 * kAlphabetKeyWidth + 9 * kAlphabetKeyGap);
+    short alphabetWidth = AlphabetRowWidth("QWERTYUIOP\b");
+    short midWidth = AlphabetRowWidth("ASDFGHJKL");
+    short bottomWidth = AlphabetRowWidth("ZXCVBNM\r");
     short width = (short)(gridWidth + 2 * kContentPad);
     short height;
     short left;
@@ -120,6 +129,12 @@ static void SizeToContent(WindowRef w)
     short availTop = (short)(screen.top + kMenuBarHeight + 8);
     short availBottom = screen.bottom;
 
+    if (midWidth > alphabetWidth) {
+        alphabetWidth = midWidth;
+    }
+    if (bottomWidth > alphabetWidth) {
+        alphabetWidth = bottomWidth;
+    }
     if (width < alphabetWidth + 2 * kContentPad) {
         width = (short)(alphabetWidth + 2 * kContentPad);
     }
@@ -258,10 +273,66 @@ static void DrawMessageBar(WindowRef w)
 }
 
 static const char* kAlphabetLayout[3] = {
-    "QWERTYUIOP",
+    "QWERTYUIOP\b",
     "ASDFGHJKL",
-    "ZXCVBNM"
+    "ZXCVBNM\r"
 };
+
+static short AlphabetKeyWidthFor(char code)
+{
+    if (code == '\r' || code == '\b') {
+        return (short)kAlphabetSpecialWidth;
+    }
+    return (short)kAlphabetKeyWidth;
+}
+
+static short AlphabetRowWidth(const char* row)
+{
+    short i;
+    short width = 0;
+    short count = 0;
+
+    for (i = 0; row[i] != '\0'; ++i) {
+        if (count > 0) {
+            width = (short)(width + kAlphabetKeyGap);
+        }
+        width = (short)(width + AlphabetKeyWidthFor(row[i]));
+        ++count;
+    }
+    return width;
+}
+
+static void DrawEnterGlyph(const Rect* key)
+{
+    short right = (short)(key->right - 6);
+    short left = (short)(key->left + 6);
+    short top = (short)(key->top + 2);
+    short midY = (short)((key->top + key->bottom) / 2 + 1);
+
+    PenNormal();
+    MoveTo(right, top);
+    LineTo(right, midY);
+    LineTo(left, midY);
+    MoveTo(left, midY);
+    LineTo((short)(left + 3), (short)(midY - 3));
+    MoveTo(left, midY);
+    LineTo((short)(left + 3), (short)(midY + 3));
+}
+
+static void DrawBackspaceGlyph(const Rect* key)
+{
+    short midY = (short)((key->top + key->bottom) / 2);
+    short left = (short)(key->left + 5);
+    short right = (short)(key->right - 5);
+
+    PenNormal();
+    MoveTo(right, midY);
+    LineTo(left, midY);
+    MoveTo(left, midY);
+    LineTo((short)(left + 4), (short)(midY - 3));
+    MoveTo(left, midY);
+    LineTo((short)(left + 4), (short)(midY + 3));
+}
 
 static void DrawAlphabet(WindowRef w)
 {
@@ -277,33 +348,25 @@ static void DrawAlphabet(WindowRef w)
     TextMode(srcOr);
 
     for (row = 0; row < kAlphabetRows; ++row) {
-        short len = 0;
-        short rowWidth;
-        short left;
-        short top;
+        const char* keys = kAlphabetLayout[row];
+        short rowWidth = AlphabetRowWidth(keys);
+        short left = (short)(port.left + (port.right - port.left - rowWidth) / 2);
+        short top = (short)(originY + row * (kAlphabetKeyHeight + kAlphabetRowGap));
+        short x = left;
 
-        while (kAlphabetLayout[row][len] != '\0') {
-            ++len;
-        }
-
-        rowWidth = (short)(len * kAlphabetKeyWidth + (len - 1) * kAlphabetKeyGap);
-        left = (short)(port.left + (port.right - port.left - rowWidth) / 2);
-        top = (short)(originY + row * (kAlphabetKeyHeight + kAlphabetRowGap));
-
-        for (i = 0; i < len; ++i) {
-            char ch = kAlphabetLayout[row][i];
+        for (i = 0; keys[i] != '\0'; ++i) {
+            char ch = keys[i];
+            short keyWidth = AlphabetKeyWidthFor(ch);
             Rect key;
-            Str255 text;
-            short textWidth;
-            short used = GameIsLetterUsed(&gGame, ch);
+            short used = 0;
 
-            SetRect(&key,
-                (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap)),
-                top,
-                (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap) + kAlphabetKeyWidth),
-                (short)(top + kAlphabetKeyHeight));
+            SetRect(&key, x, top, (short)(x + keyWidth), (short)(top + kAlphabetKeyHeight));
 
             PenNormal();
+            if (ch >= 'A' && ch <= 'Z') {
+                used = GameIsLetterUsed(&gGame, ch);
+            }
+
             if (used) {
                 Rect box = key;
                 OffsetRect(&box, 0, -2); /* raise fill only; keep glyph baseline */
@@ -316,13 +379,24 @@ static void DrawAlphabet(WindowRef w)
                 TextMode(srcOr);
             }
 
-            text[0] = 1;
-            text[1] = (unsigned char)ch;
-            textWidth = StringWidth(text);
-            MoveTo((short)(key.left + (key.right - key.left - textWidth) / 2),
-                (short)(key.bottom - 4));
-            DrawString(text);
+            if (ch == '\r') {
+                DrawEnterGlyph(&key);
+            } else if (ch == '\b') {
+                DrawBackspaceGlyph(&key);
+            } else {
+                Str255 text;
+                short textWidth;
+
+                text[0] = 1;
+                text[1] = (unsigned char)ch;
+                textWidth = StringWidth(text);
+                MoveTo((short)(key.left + (key.right - key.left - textWidth) / 2),
+                    (short)(key.bottom - 4));
+                DrawString(text);
+            }
             TextMode(srcOr);
+
+            x = (short)(x + keyWidth + kAlphabetKeyGap);
         }
     }
 }
@@ -336,31 +410,22 @@ static char HitTestAlphabet(WindowRef w, Point localPt)
     short i;
 
     for (row = 0; row < kAlphabetRows; ++row) {
-        short len = 0;
-        short rowWidth;
-        short left;
-        short top;
+        const char* keys = kAlphabetLayout[row];
+        short rowWidth = AlphabetRowWidth(keys);
+        short left = (short)(port.left + (port.right - port.left - rowWidth) / 2);
+        short top = (short)(originY + row * (kAlphabetKeyHeight + kAlphabetRowGap));
+        short x = left;
 
-        while (kAlphabetLayout[row][len] != '\0') {
-            ++len;
-        }
-
-        rowWidth = (short)(len * kAlphabetKeyWidth + (len - 1) * kAlphabetKeyGap);
-        left = (short)(port.left + (port.right - port.left - rowWidth) / 2);
-        top = (short)(originY + row * (kAlphabetKeyHeight + kAlphabetRowGap));
-
-        for (i = 0; i < len; ++i) {
+        for (i = 0; keys[i] != '\0'; ++i) {
+            char ch = keys[i];
+            short keyWidth = AlphabetKeyWidthFor(ch);
             Rect key;
 
-            SetRect(&key,
-                (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap)),
-                top,
-                (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap) + kAlphabetKeyWidth),
-                (short)(top + kAlphabetKeyHeight));
-
+            SetRect(&key, x, top, (short)(x + keyWidth), (short)(top + kAlphabetKeyHeight));
             if (PtInRect(localPt, &key)) {
-                return kAlphabetLayout[row][i];
+                return ch;
             }
+            x = (short)(x + keyWidth + kAlphabetKeyGap);
         }
     }
 
@@ -490,49 +555,69 @@ static void HandleLetter(char code)
     }
 }
 
-static void HandleKey(long message, short modifiers)
+static void HandleSubmit(void)
 {
-    char code = (char)(message & charCodeMask);
+    short row;
+    SubmitResult submit;
+
+    if (gMainWindow == NULL) {
+        return;
+    }
+
+    row = GameGetCurrentRow(&gGame);
+    submit = GameSubmit(&gGame);
+    if (submit == kSubmitOk) {
+        RedrawRow(gMainWindow, row);
+        if (GameGetStatus(&gGame) == kGamePlaying) {
+            RedrawOneCell(gMainWindow, GameGetCurrentRow(&gGame), 0);
+        }
+        RedrawAlphabet(gMainWindow);
+    }
+    RedrawMessageBar(gMainWindow);
+}
+
+static void HandleBackspace(void)
+{
     short row;
     short col;
     short newCol;
     short hadMessage;
-    SubmitResult submit;
+
+    if (gMainWindow == NULL) {
+        return;
+    }
+
+    hadMessage = (GameGetMessage(&gGame)[0] != '\0');
+    row = GameGetCurrentRow(&gGame);
+    col = GameGetCurrentCol(&gGame);
+    if (!GameBackspace(&gGame)) {
+        return;
+    }
+    newCol = GameGetCurrentCol(&gGame);
+    RedrawOneCell(gMainWindow, row, newCol);
+    if (col != newCol && col < kWordLength) {
+        RedrawOneCell(gMainWindow, row, col);
+    }
+    if (hadMessage) {
+        RedrawMessageBar(gMainWindow);
+    }
+}
+
+static void HandleKey(long message, short modifiers)
+{
+    char code = (char)(message & charCodeMask);
 
     if (modifiers & cmdKey || gMainWindow == NULL) {
         return;
     }
 
-    hadMessage = (GameGetMessage(&gGame)[0] != '\0');
-
     if (code == '\r' || code == '\n' || code == 3) {
-        row = GameGetCurrentRow(&gGame);
-        submit = GameSubmit(&gGame);
-        if (submit == kSubmitOk) {
-            RedrawRow(gMainWindow, row);
-            if (GameGetStatus(&gGame) == kGamePlaying) {
-                RedrawOneCell(gMainWindow, GameGetCurrentRow(&gGame), 0);
-            }
-            RedrawAlphabet(gMainWindow);
-        }
-        RedrawMessageBar(gMainWindow);
+        HandleSubmit();
         return;
     }
 
     if (code == 8 || code == 127) {
-        row = GameGetCurrentRow(&gGame);
-        col = GameGetCurrentCol(&gGame);
-        if (!GameBackspace(&gGame)) {
-            return;
-        }
-        newCol = GameGetCurrentCol(&gGame);
-        RedrawOneCell(gMainWindow, row, newCol);
-        if (col != newCol && col < kWordLength) {
-            RedrawOneCell(gMainWindow, row, col);
-        }
-        if (hadMessage) {
-            RedrawMessageBar(gMainWindow);
-        }
+        HandleBackspace();
         return;
     }
 
@@ -551,7 +636,11 @@ static void HandleContentClick(WindowRef w, Point globalPt)
     SetPort(w);
     GlobalToLocal(&localPt);
     ch = HitTestAlphabet(w, localPt);
-    if (ch != 0) {
+    if (ch == '\r') {
+        HandleSubmit();
+    } else if (ch == '\b') {
+        HandleBackspace();
+    } else if (ch != 0) {
         HandleLetter(ch);
     }
 }
