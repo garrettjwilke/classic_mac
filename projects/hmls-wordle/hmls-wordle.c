@@ -237,8 +237,6 @@ static void DrawMessageBar(WindowRef w)
 
     PenNormal();
     FillRect(&bar, &qd.white);
-    MoveTo(bar.left, bar.bottom - 1);
-    LineTo(bar.right, bar.bottom - 1);
 
     if (msg == NULL || msg[0] == '\0') {
         return;
