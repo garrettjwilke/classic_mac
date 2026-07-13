@@ -31,10 +31,10 @@ enum {
     kMenuBarHeight = 16,
     kTileSize = 36,
     kTileGap = 3,
-    kTitleHeight = 28,
-    kMessageHeight = 24,
-    kGridTopPad = 6,
-    kGridLift = 32
+    kTitleHeight = 16,
+    kMessageHeight = 16,
+    kGridTopPad = 8,
+    kContentPad = 16
 };
 
 /*
@@ -56,7 +56,7 @@ static WindowRef gMainWindow;
 static GameState gGame;
 static short gDone;
 
-static void FillScreenWindow(WindowRef w);
+static void SizeToContent(WindowRef w);
 static void GetGridOrigin(WindowRef w, short* originX, short* originY);
 static void GetCellRect(short originX, short originY, short row, short col, Rect* r);
 static void DrawCell(const TileCell* cell, const Rect* r, short isCurrent);
@@ -90,33 +90,35 @@ static void CleanupApplication(void)
     FlushEvents(everyEvent, 0);
 }
 
-static void FillScreenWindow(WindowRef w)
+static void SizeToContent(WindowRef w)
 {
     Rect screen = qd.screenBits.bounds;
-    Rect bounds;
+    short gridWidth = (short)(kWordLength * kTileSize + (kWordLength - 1) * kTileGap);
+    short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
+    short width = (short)(gridWidth + 2 * kContentPad);
+    short height = (short)(kTitleHeight + kMessageHeight + kGridTopPad + gridHeight + kContentPad);
+    short left;
+    short top;
+    short availTop = (short)(screen.top + kMenuBarHeight + 8);
+    short availBottom = screen.bottom;
 
-    bounds.left = screen.left;
-    bounds.top = screen.top + kMenuBarHeight;
-    bounds.right = screen.right;
-    bounds.bottom = screen.bottom;
+    left = (short)(screen.left + (screen.right - screen.left - width) / 2);
+    top = (short)(availTop + (availBottom - availTop - height) / 3);
+    if (top < availTop) {
+        top = availTop;
+    }
 
-    MoveWindow(w, bounds.left, bounds.top, false);
-    SizeWindow(w, bounds.right - bounds.left, bounds.bottom - bounds.top, true);
+    SizeWindow(w, width, height, true);
+    MoveWindow(w, left, top, false);
 }
 
 static void GetGridOrigin(WindowRef w, short* originX, short* originY)
 {
     Rect port = w->portRect;
     short gridWidth = (short)(kWordLength * kTileSize + (kWordLength - 1) * kTileGap);
-    short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
-    short contentTop = (short)(port.top + kTitleHeight + kMessageHeight + kGridTopPad);
-    short contentHeight = (short)(port.bottom - contentTop);
 
     *originX = (short)(port.left + (port.right - port.left - gridWidth) / 2);
-    *originY = (short)(contentTop + (contentHeight - gridHeight) / 2 - kGridLift);
-    if (*originY < contentTop) {
-        *originY = contentTop;
-    }
+    *originY = (short)(port.top + kTitleHeight + kMessageHeight + kGridTopPad);
 }
 
 static void GetCellRect(short originX, short originY, short row, short col, Rect* r)
@@ -256,7 +258,7 @@ static void DrawTitleBar(WindowRef w)
     TextMode(srcOr);
     width = StringWidth(text);
     MoveTo((short)(title.left + (title.right - title.left - width) / 2),
-        (short)(title.bottom - 8));
+        (short)(title.bottom - 5));
     DrawString(text);
     TextFace(0);
 }
@@ -509,7 +511,7 @@ static void DoMenuCommand(long menuCommand)
 static WindowRef NewMainWindow(void)
 {
     WindowRef w = GetNewWindow(128, NULL, (WindowPtr)-1);
-    FillScreenWindow(w);
+    SizeToContent(w);
     SetPort(w);
     return w;
 }

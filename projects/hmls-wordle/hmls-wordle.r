@@ -30,10 +30,10 @@ resource 'MBAR' (128) {
 };
 
 resource 'WIND' (128) {
-    {20, 0, 342, 512}, noGrowDocProc;
+    {40, 100, 340, 320}, noGrowDocProc;
     visible;
     goAway;
-    0, "Wordle";
+    0, "hmls-wordle";
     noAutoCenter;
 };
 
