@@ -29,7 +29,7 @@ enum {
 };
 
 enum {
-    kMenuBarHeight = 24,
+    kMenuBarHeight = 28,
     kTileSize = 36,
     kTileGap = 2,
     kMessageHeight = 16,
@@ -38,7 +38,7 @@ enum {
     kAlphabetKeyWidth = 18,
     kAlphabetKeyHeight = 12,
     kAlphabetKeyGap = 2,
-    kAlphabetRowGap = 0,
+    kAlphabetRowGap = 3,
     kAlphabetRows = 3
 };
 
@@ -304,6 +304,7 @@ static void DrawAlphabet(WindowRef w)
                 Rect box = key;
                 OffsetRect(&box, 0, -2); /* raise fill only; keep glyph baseline */
                 InsetRect(&box, 2, 0); /* 4px narrower */
+                box.top -= 1; /* 1px taller */
                 FillRect(&box, &qd.black);
                 TextMode(srcBic);
             } else {
