@@ -29,16 +29,16 @@ enum {
 };
 
 enum {
-    kMenuBarHeight = 16,
+    kMenuBarHeight = 24,
     kTileSize = 36,
     kTileGap = 2,
     kMessageHeight = 16,
     kContentPad = 2,
-    kAlphabetTopPad = 4,
+    kAlphabetTopPad = 6,
     kAlphabetKeyWidth = 18,
     kAlphabetKeyHeight = 12,
     kAlphabetKeyGap = 2,
-    kAlphabetRowGap = 1,
+    kAlphabetRowGap = 0,
     kAlphabetRows = 3
 };
 
@@ -251,7 +251,7 @@ static void DrawMessageBar(WindowRef w)
     TextMode(srcOr);
     width = StringWidth(text);
     MoveTo((short)(bar.left + (bar.right - bar.left - width) / 2),
-        (short)(bar.bottom - 6));
+        (short)(bar.bottom - 4));
     DrawString(text);
     TextFace(0);
 }
@@ -303,7 +303,10 @@ static void DrawAlphabet(WindowRef w)
             PenNormal();
             FillRect(&key, &qd.white);
             if (GameIsLetterUsed(&gGame, ch)) {
-                FrameRect(&key);
+                Rect frame = key;
+                OffsetRect(&frame, 0, -2);
+                frame.top -= 1; /* 1px taller, leaving a gap above the glyph */
+                FrameRect(&frame);
             }
 
             text[0] = 1;
