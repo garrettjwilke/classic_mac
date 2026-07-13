@@ -42,7 +42,7 @@ enum {
     kContentPad = 2,
     kAlphabetTopPad = 8,
     kAlphabetKeyWidth = 18,
-    kAlphabetSpecialWidth = 28,
+    kAlphabetSpecialWidth = 24,
     kAlphabetKeyHeight = 12,
     kAlphabetKeyGap = 2,
     kAlphabetRowGap = 3,
@@ -318,10 +318,10 @@ static short AlphabetRowWidth(const char* row)
 #ifdef CLICKABLE_LETTERS
 static void DrawEnterGlyph(const Rect* key)
 {
-    short right = (short)(key->right - 6);
-    short left = (short)(key->left + 6);
-    short top = (short)(key->top + 2);
-    short midY = (short)((key->top + key->bottom) / 2 + 1);
+    short right = (short)(key->right - 7);
+    short left = (short)(key->left + 7);
+    short top = (short)(key->top + 1);
+    short midY = (short)((key->top + key->bottom) / 2 - 3);
 
     PenNormal();
     MoveTo(right, top);
@@ -335,17 +335,18 @@ static void DrawEnterGlyph(const Rect* key)
 
 static void DrawBackspaceGlyph(const Rect* key)
 {
-    short midY = (short)((key->top + key->bottom) / 2);
-    short left = (short)(key->left + 5);
-    short right = (short)(key->right - 5);
+    short midY = (short)((key->top + key->bottom) / 2 - 3);
+    short midX = (short)((key->left + key->right) / 2);
+    short tip = (short)(midX - 5);
+    short end = (short)(midX + 4);
 
     PenNormal();
-    MoveTo(right, midY);
-    LineTo(left, midY);
-    MoveTo(left, midY);
-    LineTo((short)(left + 4), (short)(midY - 3));
-    MoveTo(left, midY);
-    LineTo((short)(left + 4), (short)(midY + 3));
+    MoveTo(end, midY);
+    LineTo(tip, midY);
+    MoveTo(tip, midY);
+    LineTo((short)(tip + 3), (short)(midY - 3));
+    MoveTo(tip, midY);
+    LineTo((short)(tip + 3), (short)(midY + 3));
 }
 #endif
 
