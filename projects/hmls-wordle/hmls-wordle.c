@@ -28,13 +28,11 @@ enum {
 };
 
 enum {
-    kMenuBarHeight = 16,
+    kMenuBarHeight = 20,
     kTileSize = 36,
     kTileGap = 3,
-    kTitleHeight = 16,
-    kMessageHeight = 16,
-    kGridTopPad = 8,
-    kContentPad = 16
+    kMessageHeight = 20,
+    kContentPad = 8
 };
 
 /*
@@ -61,13 +59,12 @@ static void GetGridOrigin(WindowRef w, short* originX, short* originY);
 static void GetCellRect(short originX, short originY, short row, short col, Rect* r);
 static void DrawCell(const TileCell* cell, const Rect* r, short isCurrent);
 static void DrawGrid(WindowRef w);
-static void DrawTitleBar(WindowRef w);
-static void DrawMessage(WindowRef w);
+static void DrawMessageBar(WindowRef w);
 static void DoUpdate(WindowRef w);
 static void RedrawFullWindow(WindowRef w);
 static void RedrawOneCell(WindowRef w, short row, short col);
 static void RedrawRow(WindowRef w, short row);
-static void RedrawMessage(WindowRef w);
+static void RedrawMessageBar(WindowRef w);
 static void HandleKey(long message, short modifiers);
 static void ShowAboutBox(void);
 static void DoMenuCommand(long menuCommand);
@@ -96,7 +93,7 @@ static void SizeToContent(WindowRef w)
     short gridWidth = (short)(kWordLength * kTileSize + (kWordLength - 1) * kTileGap);
     short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
     short width = (short)(gridWidth + 2 * kContentPad);
-    short height = (short)(kTitleHeight + kMessageHeight + kGridTopPad + gridHeight + kContentPad);
+    short height = (short)(kMessageHeight + gridHeight + 2 * kContentPad);
     short left;
     short top;
     short availTop = (short)(screen.top + kMenuBarHeight + 8);
@@ -118,7 +115,7 @@ static void GetGridOrigin(WindowRef w, short* originX, short* originY)
     short gridWidth = (short)(kWordLength * kTileSize + (kWordLength - 1) * kTileGap);
 
     *originX = (short)(port.left + (port.right - port.left - gridWidth) / 2);
-    *originY = (short)(port.top + kTitleHeight + kMessageHeight + kGridTopPad);
+    *originY = (short)(port.top + kMessageHeight + kContentPad);
 }
 
 static void GetCellRect(short originX, short originY, short row, short col, Rect* r)
@@ -234,50 +231,23 @@ static void CStringToPascal(const char* src, Str255 dst)
     dst[0] = (unsigned char)i;
 }
 
-static void DrawTitleBar(WindowRef w)
+static void DrawMessageBar(WindowRef w)
 {
-    Rect title;
-    Str255 text;
-    short width;
-
-    SetRect(&title,
-        w->portRect.left,
-        w->portRect.top,
-        w->portRect.right,
-        (short)(w->portRect.top + kTitleHeight));
-
-    PenNormal();
-    FillRect(&title, &qd.white);
-    MoveTo(title.left, title.bottom - 1);
-    LineTo(title.right, title.bottom - 1);
-
-    CStringToPascal("hmls-wordle", text);
-    TextFont(systemFont);
-    TextSize(12);
-    TextFace(bold);
-    TextMode(srcOr);
-    width = StringWidth(text);
-    MoveTo((short)(title.left + (title.right - title.left - width) / 2),
-        (short)(title.bottom - 5));
-    DrawString(text);
-    TextFace(0);
-}
-
-static void DrawMessage(WindowRef w)
-{
-    Rect msgRect;
+    Rect bar;
     Str255 text;
     const char* msg = GameGetMessage(&gGame);
     short width;
 
-    SetRect(&msgRect,
+    SetRect(&bar,
         w->portRect.left,
-        (short)(w->portRect.top + kTitleHeight),
+        w->portRect.top,
         w->portRect.right,
-        (short)(w->portRect.top + kTitleHeight + kMessageHeight));
+        (short)(w->portRect.top + kMessageHeight));
 
     PenNormal();
-    FillRect(&msgRect, &qd.white);
+    FillRect(&bar, &qd.white);
+    MoveTo(bar.left, bar.bottom - 1);
+    LineTo(bar.right, bar.bottom - 1);
 
     if (msg == NULL || msg[0] == '\0') {
         return;
@@ -286,12 +256,13 @@ static void DrawMessage(WindowRef w)
     CStringToPascal(msg, text);
     TextFont(systemFont);
     TextSize(12);
-    TextFace(0);
+    TextFace(bold);
     TextMode(srcOr);
     width = StringWidth(text);
-    MoveTo((short)(msgRect.left + (msgRect.right - msgRect.left - width) / 2),
-        (short)(msgRect.bottom - 6));
+    MoveTo((short)(bar.left + (bar.right - bar.left - width) / 2),
+        (short)(bar.bottom - 6));
     DrawString(text);
+    TextFace(0);
 }
 
 static void DoUpdate(WindowRef w)
@@ -299,8 +270,7 @@ static void DoUpdate(WindowRef w)
     BeginUpdate(w);
     SetPort(w);
     EraseRect(&w->portRect);
-    DrawTitleBar(w);
-    DrawMessage(w);
+    DrawMessageBar(w);
     DrawGrid(w);
     EndUpdate(w);
 }
@@ -353,10 +323,10 @@ static void RedrawRow(WindowRef w, short row)
     }
 }
 
-static void RedrawMessage(WindowRef w)
+static void RedrawMessageBar(WindowRef w)
 {
     SetPort(w);
-    DrawMessage(w);
+    DrawMessageBar(w);
 }
 
 static void RequestNewGame(void)
@@ -392,7 +362,7 @@ static void HandleKey(long message, short modifiers)
                 RedrawOneCell(gMainWindow, GameGetCurrentRow(&gGame), 0);
             }
         }
-        RedrawMessage(gMainWindow);
+        RedrawMessageBar(gMainWindow);
         return;
     }
 
@@ -409,7 +379,7 @@ static void HandleKey(long message, short modifiers)
             RedrawOneCell(gMainWindow, row, col);
         }
         if (hadMessage) {
-            RedrawMessage(gMainWindow);
+            RedrawMessageBar(gMainWindow);
         }
         return;
     }
@@ -433,7 +403,7 @@ static void HandleKey(long message, short modifiers)
         RedrawOneCell(gMainWindow, row, newCol);
     }
     if (hadMessage) {
-        RedrawMessage(gMainWindow);
+        RedrawMessageBar(gMainWindow);
     }
 }
 
