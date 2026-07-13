@@ -34,7 +34,7 @@ enum {
     kTileGap = 2,
     kMessageHeight = 16,
     kContentPad = 2,
-    kAlphabetTopPad = 6,
+    kAlphabetTopPad = 8,
     kAlphabetKeyWidth = 18,
     kAlphabetKeyHeight = 12,
     kAlphabetKeyGap = 2,
@@ -291,6 +291,7 @@ static void DrawAlphabet(WindowRef w)
             Rect key;
             Str255 text;
             short textWidth;
+            short used = GameIsLetterUsed(&gGame, ch);
 
             SetRect(&key,
                 (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap)),
@@ -299,12 +300,15 @@ static void DrawAlphabet(WindowRef w)
                 (short)(top + kAlphabetKeyHeight));
 
             PenNormal();
-            FillRect(&key, &qd.white);
-            if (GameIsLetterUsed(&gGame, ch)) {
-                Rect frame = key;
-                OffsetRect(&frame, 0, -2);
-                frame.top -= 1; /* 1px taller, leaving a gap above the glyph */
-                FrameRect(&frame);
+            if (used) {
+                Rect box = key;
+                OffsetRect(&box, 0, -2); /* raise fill only; keep glyph baseline */
+                InsetRect(&box, 2, 0); /* 4px narrower */
+                FillRect(&box, &qd.black);
+                TextMode(srcBic);
+            } else {
+                FillRect(&key, &qd.white);
+                TextMode(srcOr);
             }
 
             text[0] = 1;
@@ -313,6 +317,7 @@ static void DrawAlphabet(WindowRef w)
             MoveTo((short)(key.left + (key.right - key.left - textWidth) / 2),
                 (short)(key.bottom - 4));
             DrawString(text);
+            TextMode(srcOr);
         }
     }
 }
