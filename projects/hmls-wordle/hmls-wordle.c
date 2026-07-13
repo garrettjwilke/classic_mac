@@ -14,6 +14,12 @@
 #include "game.h"
 #include "letters.h"
 
+/*
+ * Uncomment to enable clickable on-screen QWERTY (Enter/Backspace keys + mouse input).
+ * Leave commented for keyboard-only play and a narrower window.
+ */
+//#define CLICKABLE_LETTERS
+
 enum {
     kMenuApple = 128,
     kMenuGame = 129
@@ -62,6 +68,18 @@ static WindowRef gMainWindow;
 static GameState gGame;
 static short gDone;
 
+static const char* kAlphabetLayout[3] = {
+#ifdef CLICKABLE_LETTERS
+    "QWERTYUIOP\b",
+    "ASDFGHJKL",
+    "ZXCVBNM\r"
+#else
+    "QWERTYUIOP",
+    "ASDFGHJKL",
+    "ZXCVBNM"
+#endif
+};
+
 static void SizeToContent(WindowRef w);
 static void GetGridOrigin(WindowRef w, short* originX, short* originY);
 static void GetCellRect(short originX, short originY, short row, short col, Rect* r);
@@ -82,10 +100,12 @@ static void HandleBackspace(void);
 static void HandleKey(long message, short modifiers);
 static short AlphabetKeyWidthFor(char code);
 static short AlphabetRowWidth(const char* row);
+#ifdef CLICKABLE_LETTERS
 static void DrawEnterGlyph(const Rect* key);
 static void DrawBackspaceGlyph(const Rect* key);
 static char HitTestAlphabet(WindowRef w, Point localPt);
 static void HandleContentClick(WindowRef w, Point globalPt);
+#endif
 static void ShowAboutBox(void);
 static void DoMenuCommand(long menuCommand);
 static void RequestNewGame(void);
@@ -119,9 +139,8 @@ static void SizeToContent(WindowRef w)
     Rect screen = qd.screenBits.bounds;
     short gridWidth = (short)(kWordLength * kTileSize + (kWordLength - 1) * kTileGap);
     short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
-    short alphabetWidth = AlphabetRowWidth("QWERTYUIOP\b");
-    short midWidth = AlphabetRowWidth("ASDFGHJKL");
-    short bottomWidth = AlphabetRowWidth("ZXCVBNM\r");
+    short alphabetWidth = 0;
+    short row;
     short width = (short)(gridWidth + 2 * kContentPad);
     short height;
     short left;
@@ -129,11 +148,11 @@ static void SizeToContent(WindowRef w)
     short availTop = (short)(screen.top + kMenuBarHeight + 8);
     short availBottom = screen.bottom;
 
-    if (midWidth > alphabetWidth) {
-        alphabetWidth = midWidth;
-    }
-    if (bottomWidth > alphabetWidth) {
-        alphabetWidth = bottomWidth;
+    for (row = 0; row < kAlphabetRows; ++row) {
+        short rowWidth = AlphabetRowWidth(kAlphabetLayout[row]);
+        if (rowWidth > alphabetWidth) {
+            alphabetWidth = rowWidth;
+        }
     }
     if (width < alphabetWidth + 2 * kContentPad) {
         width = (short)(alphabetWidth + 2 * kContentPad);
@@ -272,12 +291,6 @@ static void DrawMessageBar(WindowRef w)
     TextFace(0);
 }
 
-static const char* kAlphabetLayout[3] = {
-    "QWERTYUIOP\b",
-    "ASDFGHJKL",
-    "ZXCVBNM\r"
-};
-
 static short AlphabetKeyWidthFor(char code)
 {
     if (code == '\r' || code == '\b') {
@@ -302,6 +315,7 @@ static short AlphabetRowWidth(const char* row)
     return width;
 }
 
+#ifdef CLICKABLE_LETTERS
 static void DrawEnterGlyph(const Rect* key)
 {
     short right = (short)(key->right - 6);
@@ -333,6 +347,7 @@ static void DrawBackspaceGlyph(const Rect* key)
     MoveTo(left, midY);
     LineTo((short)(left + 4), (short)(midY + 3));
 }
+#endif
 
 static void DrawAlphabet(WindowRef w)
 {
@@ -379,11 +394,14 @@ static void DrawAlphabet(WindowRef w)
                 TextMode(srcOr);
             }
 
+#ifdef CLICKABLE_LETTERS
             if (ch == '\r') {
                 DrawEnterGlyph(&key);
             } else if (ch == '\b') {
                 DrawBackspaceGlyph(&key);
-            } else {
+            } else
+#endif
+            {
                 Str255 text;
                 short textWidth;
 
@@ -401,6 +419,7 @@ static void DrawAlphabet(WindowRef w)
     }
 }
 
+#ifdef CLICKABLE_LETTERS
 static char HitTestAlphabet(WindowRef w, Point localPt)
 {
     Rect port = w->portRect;
@@ -431,6 +450,7 @@ static char HitTestAlphabet(WindowRef w, Point localPt)
 
     return 0;
 }
+#endif
 
 static void DoUpdate(WindowRef w)
 {
@@ -624,6 +644,7 @@ static void HandleKey(long message, short modifiers)
     HandleLetter(code);
 }
 
+#ifdef CLICKABLE_LETTERS
 static void HandleContentClick(WindowRef w, Point globalPt)
 {
     Point localPt = globalPt;
@@ -644,6 +665,7 @@ static void HandleContentClick(WindowRef w, Point globalPt)
         HandleLetter(ch);
     }
 }
+#endif
 
 static void ShowAboutBox(void)
 {
@@ -779,8 +801,10 @@ int main(void)
                         case inContent:
                             if (win != FrontWindow()) {
                                 SelectWindow(win);
+#ifdef CLICKABLE_LETTERS
                             } else {
                                 HandleContentClick(win, e.where);
+#endif
                             }
                             break;
                         case inSysWindow:
