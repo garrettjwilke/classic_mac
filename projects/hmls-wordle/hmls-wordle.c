@@ -12,6 +12,7 @@
 #include <Events.h>
 
 #include "game.h"
+#include "letters.h"
 
 enum {
     kMenuApple = 128,
@@ -125,39 +126,6 @@ static void GetCellRect(short originX, short originY, short row, short col, Rect
     SetRect(r, left, top, (short)(left + kTileSize), (short)(top + kTileSize));
 }
 
-static void DrawLetterInRect(char letter, const Rect* r, short invert)
-{
-    Str255 text;
-    short width;
-    short x;
-    short y;
-
-    if (letter == 0) {
-        return;
-    }
-
-    text[0] = 1;
-    text[1] = (unsigned char)letter;
-
-    TextFont(systemFont);
-    TextSize(18);
-    TextFace(bold);
-    if (invert) {
-        TextMode(srcBic);
-    } else {
-        TextMode(srcOr);
-    }
-
-    width = StringWidth(text);
-    x = (short)(r->left + (r->right - r->left - width) / 2);
-    y = (short)(r->top + (r->bottom - r->top + 18) / 2 - 2);
-    MoveTo(x, y);
-    DrawString(text);
-
-    TextMode(srcOr);
-    TextFace(0);
-}
-
 static void DrawCell(const TileCell* cell, const Rect* r, short isCurrent)
 {
     Rect box = *r;
@@ -169,22 +137,22 @@ static void DrawCell(const TileCell* cell, const Rect* r, short isCurrent)
         case kCellCorrect:
             FillRect(&box, &gPatCorrect);
             FrameRect(&box);
-            DrawLetterInRect(cell->letter, &box, gInvertCorrect);
+            DrawLetterGlyph(cell->letter, &box, gInvertCorrect);
             break;
         case kCellPresent:
             FillRect(&box, &gPatWrongPlace);
             FrameRect(&box);
-            DrawLetterInRect(cell->letter, &box, gInvertWrongPlace);
+            DrawLetterGlyph(cell->letter, &box, gInvertWrongPlace);
             break;
         case kCellAbsent:
             FillRect(&box, &gPatMiss);
             FrameRect(&box);
-            DrawLetterInRect(cell->letter, &box, gInvertMiss);
+            DrawLetterGlyph(cell->letter, &box, gInvertMiss);
             break;
         case kCellFilled:
             FillRect(&box, &gPatEmpty);
             FrameRect(&box);
-            DrawLetterInRect(cell->letter, &box, gInvertEmpty);
+            DrawLetterGlyph(cell->letter, &box, gInvertEmpty);
             break;
         case kCellEmpty:
         default:
