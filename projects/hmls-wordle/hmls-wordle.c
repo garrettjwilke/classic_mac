@@ -75,7 +75,10 @@ static void RedrawOneCell(WindowRef w, short row, short col);
 static void RedrawRow(WindowRef w, short row);
 static void RedrawMessageBar(WindowRef w);
 static void RedrawAlphabet(WindowRef w);
+static void HandleLetter(char code);
 static void HandleKey(long message, short modifiers);
+static char HitTestAlphabet(WindowRef w, Point localPt);
+static void HandleContentClick(WindowRef w, Point globalPt);
 static void ShowAboutBox(void);
 static void DoMenuCommand(long menuCommand);
 static void RequestNewGame(void);
@@ -254,13 +257,14 @@ static void DrawMessageBar(WindowRef w)
     TextFace(0);
 }
 
+static const char* kAlphabetLayout[3] = {
+    "QWERTYUIOP",
+    "ASDFGHJKL",
+    "ZXCVBNM"
+};
+
 static void DrawAlphabet(WindowRef w)
 {
-    static const char* rows[3] = {
-        "QWERTYUIOP",
-        "ASDFGHJKL",
-        "ZXCVBNM"
-    };
     Rect port = w->portRect;
     short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
     short originY = (short)(port.top + kMessageHeight + kContentPad + gridHeight + kAlphabetTopPad);
@@ -278,7 +282,7 @@ static void DrawAlphabet(WindowRef w)
         short left;
         short top;
 
-        while (rows[row][len] != '\0') {
+        while (kAlphabetLayout[row][len] != '\0') {
             ++len;
         }
 
@@ -287,7 +291,7 @@ static void DrawAlphabet(WindowRef w)
         top = (short)(originY + row * (kAlphabetKeyHeight + kAlphabetRowGap));
 
         for (i = 0; i < len; ++i) {
-            char ch = rows[row][i];
+            char ch = kAlphabetLayout[row][i];
             Rect key;
             Str255 text;
             short textWidth;
@@ -321,6 +325,46 @@ static void DrawAlphabet(WindowRef w)
             TextMode(srcOr);
         }
     }
+}
+
+static char HitTestAlphabet(WindowRef w, Point localPt)
+{
+    Rect port = w->portRect;
+    short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
+    short originY = (short)(port.top + kMessageHeight + kContentPad + gridHeight + kAlphabetTopPad);
+    short row;
+    short i;
+
+    for (row = 0; row < kAlphabetRows; ++row) {
+        short len = 0;
+        short rowWidth;
+        short left;
+        short top;
+
+        while (kAlphabetLayout[row][len] != '\0') {
+            ++len;
+        }
+
+        rowWidth = (short)(len * kAlphabetKeyWidth + (len - 1) * kAlphabetKeyGap);
+        left = (short)(port.left + (port.right - port.left - rowWidth) / 2);
+        top = (short)(originY + row * (kAlphabetKeyHeight + kAlphabetRowGap));
+
+        for (i = 0; i < len; ++i) {
+            Rect key;
+
+            SetRect(&key,
+                (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap)),
+                top,
+                (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap) + kAlphabetKeyWidth),
+                (short)(top + kAlphabetKeyHeight));
+
+            if (PtInRect(localPt, &key)) {
+                return kAlphabetLayout[row][i];
+            }
+        }
+    }
+
+    return 0;
 }
 
 static void DoUpdate(WindowRef w)
@@ -412,6 +456,40 @@ static void RequestNewGame(void)
     }
 }
 
+static void HandleLetter(char code)
+{
+    short row;
+    short col;
+    short newCol;
+    short hadMessage;
+
+    if (gMainWindow == NULL) {
+        return;
+    }
+    if (code >= 'a' && code <= 'z') {
+        code = (char)(code - 'a' + 'A');
+    }
+    if (code < 'A' || code > 'Z') {
+        return;
+    }
+
+    hadMessage = (GameGetMessage(&gGame)[0] != '\0');
+    row = GameGetCurrentRow(&gGame);
+    col = GameGetCurrentCol(&gGame);
+    if (!GameTypeLetter(&gGame, code)) {
+        return;
+    }
+
+    RedrawOneCell(gMainWindow, row, col);
+    newCol = GameGetCurrentCol(&gGame);
+    if (newCol < kWordLength) {
+        RedrawOneCell(gMainWindow, row, newCol);
+    }
+    if (hadMessage) {
+        RedrawMessageBar(gMainWindow);
+    }
+}
+
 static void HandleKey(long message, short modifiers)
 {
     char code = (char)(message & charCodeMask);
@@ -433,7 +511,6 @@ static void HandleKey(long message, short modifiers)
         if (submit == kSubmitOk) {
             RedrawRow(gMainWindow, row);
             if (GameGetStatus(&gGame) == kGamePlaying) {
-                /* Cursor moved to the next row's first cell. */
                 RedrawOneCell(gMainWindow, GameGetCurrentRow(&gGame), 0);
             }
             RedrawAlphabet(gMainWindow);
@@ -448,7 +525,6 @@ static void HandleKey(long message, short modifiers)
         if (!GameBackspace(&gGame)) {
             return;
         }
-        /* Cleared cell is the new currentCol; old cursor cell loses thick border. */
         newCol = GameGetCurrentCol(&gGame);
         RedrawOneCell(gMainWindow, row, newCol);
         if (col != newCol && col < kWordLength) {
@@ -460,26 +536,23 @@ static void HandleKey(long message, short modifiers)
         return;
     }
 
-    if (code >= 'a' && code <= 'z') {
-        code = (char)(code - 'a' + 'A');
-    } else if (code < 'A' || code > 'Z') {
+    HandleLetter(code);
+}
+
+static void HandleContentClick(WindowRef w, Point globalPt)
+{
+    Point localPt = globalPt;
+    char ch;
+
+    if (w != gMainWindow) {
         return;
     }
 
-    row = GameGetCurrentRow(&gGame);
-    col = GameGetCurrentCol(&gGame);
-    if (!GameTypeLetter(&gGame, code)) {
-        return;
-    }
-
-    /* Letter landed in `col`; cursor advanced to currentCol. */
-    RedrawOneCell(gMainWindow, row, col);
-    newCol = GameGetCurrentCol(&gGame);
-    if (newCol < kWordLength) {
-        RedrawOneCell(gMainWindow, row, newCol);
-    }
-    if (hadMessage) {
-        RedrawMessageBar(gMainWindow);
+    SetPort(w);
+    GlobalToLocal(&localPt);
+    ch = HitTestAlphabet(w, localPt);
+    if (ch != 0) {
+        HandleLetter(ch);
     }
 }
 
@@ -617,6 +690,8 @@ int main(void)
                         case inContent:
                             if (win != FrontWindow()) {
                                 SelectWindow(win);
+                            } else {
+                                HandleContentClick(win, e.where);
                             }
                             break;
                         case inSysWindow:
