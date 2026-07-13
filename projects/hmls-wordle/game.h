@@ -40,6 +40,7 @@ typedef struct {
     short currentCol;
     GameStatus status;
     char message[48];
+    unsigned char letterUsed[26];
 } GameState;
 
 void GameInit(GameState* game);
@@ -51,6 +52,7 @@ short GameGetCurrentCol(const GameState* game);
 const TileCell* GameGetCell(const GameState* game, short row, short col);
 void GameGetAnswer(const GameState* game, char out[kWordLength]);
 const char* GameGetMessage(const GameState* game);
+short GameIsLetterUsed(const GameState* game, char letter);
 
 void GameClearMessage(GameState* game);
 short GameTypeLetter(GameState* game, char letter);

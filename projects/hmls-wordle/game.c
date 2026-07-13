@@ -23,6 +23,7 @@ void GameNew(GameState* game)
 {
     short row;
     short col;
+    short i;
 
     WordsPickAnswer(game->answer);
     for (row = 0; row < kMaxGuesses; ++row) {
@@ -30,6 +31,9 @@ void GameNew(GameState* game)
             game->grid[row][col].letter = 0;
             game->grid[row][col].state = kCellEmpty;
         }
+    }
+    for (i = 0; i < 26; ++i) {
+        game->letterUsed[i] = 0;
     }
     game->currentRow = 0;
     game->currentCol = 0;
@@ -68,6 +72,17 @@ void GameGetAnswer(const GameState* game, char out[kWordLength])
 const char* GameGetMessage(const GameState* game)
 {
     return game->message;
+}
+
+short GameIsLetterUsed(const GameState* game, char letter)
+{
+    if (letter >= 'a' && letter <= 'z') {
+        letter = (char)(letter - 'a' + 'A');
+    }
+    if (letter < 'A' || letter > 'Z') {
+        return 0;
+    }
+    return game->letterUsed[letter - 'A'] ? 1 : 0;
 }
 
 void GameClearMessage(GameState* game)
@@ -169,6 +184,12 @@ SubmitResult GameSubmit(GameState* game)
     }
 
     ScoreRow(game);
+
+    for (col = 0; col < kWordLength; ++col) {
+        if (guess[col] >= 'A' && guess[col] <= 'Z') {
+            game->letterUsed[guess[col] - 'A'] = 1;
+        }
+    }
 
     allCorrect = 1;
     for (col = 0; col < kWordLength; ++col) {

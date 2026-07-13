@@ -29,11 +29,17 @@ enum {
 };
 
 enum {
-    kMenuBarHeight = 20,
+    kMenuBarHeight = 16,
     kTileSize = 36,
-    kTileGap = 3,
-    kMessageHeight = 20,
-    kContentPad = 8
+    kTileGap = 2,
+    kMessageHeight = 16,
+    kContentPad = 2,
+    kAlphabetTopPad = 4,
+    kAlphabetKeyWidth = 18,
+    kAlphabetKeyHeight = 12,
+    kAlphabetKeyGap = 2,
+    kAlphabetRowGap = 1,
+    kAlphabetRows = 3
 };
 
 /*
@@ -61,11 +67,14 @@ static void GetCellRect(short originX, short originY, short row, short col, Rect
 static void DrawCell(const TileCell* cell, const Rect* r, short isCurrent);
 static void DrawGrid(WindowRef w);
 static void DrawMessageBar(WindowRef w);
+static void DrawAlphabet(WindowRef w);
+static short AlphabetHeight(void);
 static void DoUpdate(WindowRef w);
 static void RedrawFullWindow(WindowRef w);
 static void RedrawOneCell(WindowRef w, short row, short col);
 static void RedrawRow(WindowRef w, short row);
 static void RedrawMessageBar(WindowRef w);
+static void RedrawAlphabet(WindowRef w);
 static void HandleKey(long message, short modifiers);
 static void ShowAboutBox(void);
 static void DoMenuCommand(long menuCommand);
@@ -88,17 +97,31 @@ static void CleanupApplication(void)
     FlushEvents(everyEvent, 0);
 }
 
+static short AlphabetHeight(void)
+{
+    return (short)(kAlphabetTopPad
+        + kAlphabetRows * kAlphabetKeyHeight
+        + (kAlphabetRows - 1) * kAlphabetRowGap);
+}
+
 static void SizeToContent(WindowRef w)
 {
     Rect screen = qd.screenBits.bounds;
     short gridWidth = (short)(kWordLength * kTileSize + (kWordLength - 1) * kTileGap);
     short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
+    short alphabetWidth = (short)(10 * kAlphabetKeyWidth + 9 * kAlphabetKeyGap);
     short width = (short)(gridWidth + 2 * kContentPad);
-    short height = (short)(kMessageHeight + gridHeight + 2 * kContentPad);
+    short height;
     short left;
     short top;
     short availTop = (short)(screen.top + kMenuBarHeight + 8);
     short availBottom = screen.bottom;
+
+    if (width < alphabetWidth + 2 * kContentPad) {
+        width = (short)(alphabetWidth + 2 * kContentPad);
+    }
+
+    height = (short)(kMessageHeight + gridHeight + AlphabetHeight() + 2 * kContentPad);
 
     left = (short)(screen.left + (screen.right - screen.left - width) / 2);
     top = (short)(availTop + (availBottom - availTop - height) / 3);
@@ -233,6 +256,66 @@ static void DrawMessageBar(WindowRef w)
     TextFace(0);
 }
 
+static void DrawAlphabet(WindowRef w)
+{
+    static const char* rows[3] = {
+        "QWERTYUIOP",
+        "ASDFGHJKL",
+        "ZXCVBNM"
+    };
+    Rect port = w->portRect;
+    short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
+    short originY = (short)(port.top + kMessageHeight + kContentPad + gridHeight + kAlphabetTopPad);
+    short row;
+    short i;
+
+    TextFont(systemFont);
+    TextSize(12);
+    TextFace(0);
+    TextMode(srcOr);
+
+    for (row = 0; row < kAlphabetRows; ++row) {
+        short len = 0;
+        short rowWidth;
+        short left;
+        short top;
+
+        while (rows[row][len] != '\0') {
+            ++len;
+        }
+
+        rowWidth = (short)(len * kAlphabetKeyWidth + (len - 1) * kAlphabetKeyGap);
+        left = (short)(port.left + (port.right - port.left - rowWidth) / 2);
+        top = (short)(originY + row * (kAlphabetKeyHeight + kAlphabetRowGap));
+
+        for (i = 0; i < len; ++i) {
+            char ch = rows[row][i];
+            Rect key;
+            Str255 text;
+            short textWidth;
+
+            SetRect(&key,
+                (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap)),
+                top,
+                (short)(left + i * (kAlphabetKeyWidth + kAlphabetKeyGap) + kAlphabetKeyWidth),
+                (short)(top + kAlphabetKeyHeight));
+
+            PenNormal();
+            FillRect(&key, &qd.white);
+            if (GameIsLetterUsed(&gGame, ch)) {
+                FrameRect(&key);
+            }
+
+            text[0] = 1;
+            text[1] = (unsigned char)ch;
+            textWidth = StringWidth(text);
+            MoveTo((short)(key.left + (key.right - key.left - textWidth) / 2),
+                (short)(key.bottom - 4));
+            DrawString(text);
+        }
+    }
+}
+
 static void DoUpdate(WindowRef w)
 {
     BeginUpdate(w);
@@ -240,6 +323,7 @@ static void DoUpdate(WindowRef w)
     EraseRect(&w->portRect);
     DrawMessageBar(w);
     DrawGrid(w);
+    DrawAlphabet(w);
     EndUpdate(w);
 }
 
@@ -297,6 +381,22 @@ static void RedrawMessageBar(WindowRef w)
     DrawMessageBar(w);
 }
 
+static void RedrawAlphabet(WindowRef w)
+{
+    Rect port = w->portRect;
+    short gridHeight = (short)(kMaxGuesses * kTileSize + (kMaxGuesses - 1) * kTileGap);
+    Rect area;
+
+    SetPort(w);
+    SetRect(&area,
+        port.left,
+        (short)(port.top + kMessageHeight + kContentPad + gridHeight),
+        port.right,
+        port.bottom);
+    EraseRect(&area);
+    DrawAlphabet(w);
+}
+
 static void RequestNewGame(void)
 {
     GameNew(&gGame);
@@ -329,6 +429,7 @@ static void HandleKey(long message, short modifiers)
                 /* Cursor moved to the next row's first cell. */
                 RedrawOneCell(gMainWindow, GameGetCurrentRow(&gGame), 0);
             }
+            RedrawAlphabet(gMainWindow);
         }
         RedrawMessageBar(gMainWindow);
         return;
